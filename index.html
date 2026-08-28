@@ -42,7 +42,7 @@ main{max-width:760px;padding-top:8px}
 </head>
 <body>
 <main>
-<div class="brand">FIVE-HAND HUNTER · v0.41</div>
+<div class="brand">FIVE-HAND HUNTER · v0.42</div>
 <h1>誰是獵人，誰是獵物？</h1>
 <p class="tag">五手 Poker。一次身份判斷。</p>
 
@@ -82,7 +82,7 @@ main{max-width:760px;padding-top:8px}
 <button id="guessGPT" type="button" onclick="selectGuess('GPT')"><b>GPT</b> — Bayesian Update</button>
 </div><div class="identity-compose"><input id="identityInput" type="text" maxlength="180" placeholder="輸入你的判斷、理由或想說的話…"><button id="identitySendBtn" class="primary send" onclick="submitIdentity()">➤</button></div><div id="identityLog" class="talk identity-log"><div class="line dealer"><b>Dealer：</b>留下你的判斷。AI 回應將在後續版本接入。</div></div></div><div id="result" class="card hidden"></div>
 </section>
-<div id="phaseOverlay" class="phase-overlay"><div class="phase-mark"><b>READING THE TRACES</b><span>五手已盡。面具仍在。</span></div></div><div class="footer">Prototype v0.41 · Dealer Persona & Conversation Alpha</div>
+<div id="phaseOverlay" class="phase-overlay"><div class="phase-mark"><b>READING THE TRACES</b><span>五手已盡。面具仍在。</span></div></div><div class="footer">Prototype v0.42 · Deal Director & Event Pipeline</div>
 </main>
 
 <script>
@@ -105,8 +105,32 @@ const personas=[
 {open:'「入座。五手，資訊有限，請有效利用。」',next:'「狀態已更新。行動到你。」',river:'「River。最後一次決策。」',end:'「Poker Phase 結束。提交你的身份判斷。」'},
 {open:'「……五手。」',next:'「輪到你。」',river:'「最後一張。」',end:'「牌局已盡。現在，揭下面具。」'}];
 
+// Five-Hand Deal Director v0.42. Hidden, identity-independent, locked per match.
+const DEAL_PROFILES={
+  A:{hunterPlayable:.65,opponentPlayable:.60,collision:.35,random:.25},
+  B:{hunterPlayable:.55,opponentPlayable:.55,collision:.25,random:.35},
+  C:{hunterPlayable:.60,opponentPlayable:.58,collision:.30,random:.30}
+};
+function chooseDealProfile(){const keys=Object.keys(DEAL_PROFILES);return keys[Math.floor(Math.random()*keys.length)]}
+function isPlayableHole(h){
+  if(!h||h.length<2)return false;
+  const a=v(h[0].r),b=v(h[1].r),hi=Math.max(a,b),lo=Math.min(a,b),pair=a===b,suited=h[0].s===h[1].s,gap=hi-lo;
+  return pair||hi>=12||(hi>=10&&lo>=8)||(suited&&hi>=9&&gap<=3)||(suited&&hi===14)||(hi===14&&lo>=7);
+}
+function directedDeck(profileKey){
+  const cfg=DEAL_PROFILES[profileKey]||DEAL_PROFILES.C;
+  if(Math.random()<cfg.random)return deck();
+  let wantH=Math.random()<cfg.hunterPlayable,wantO=Math.random()<cfg.opponentPlayable;
+  if(Math.random()<cfg.collision){wantH=true;wantO=true}
+  for(let tries=0;tries<400;tries++){
+    const d=deck(), h=[d[d.length-1],d[d.length-2]], o=[d[d.length-3],d[d.length-4]];
+    if(isPlayableHole(h)===wantH&&isPlayableHole(o)===wantO)return d;
+  }
+  return deck();
+}
+
 /*
-DEALER PERSONA & CONVERSATION LAYER v0.41
+DEALER EVENT & PERSONA LAYER v0.42
 Principle: the game engine owns facts; AI owns presentation only.
 No API key belongs in this browser file. In the live version, dealerRequest()
 should call our own server endpoint, which then calls the model.
@@ -172,7 +196,7 @@ function dealerFallback(kind,data={}){
     hand_start:()=>`Hand ${G.hand}。${G.heroBTN?'你在 BTN / SB。':'你在 BB。'} ${p.next}`,
     street:()=>`${data.street||''}：${(data.cards||[]).join(' ')}`,
     river:()=>p.river,
-    player_message:()=> '「收到。」',
+    player_message:()=> '要我幫什麼？牌可不能替你打喔。',
     invalid_action:()=>`「動作無效：${data.message||'請重新操作'}」`,
     system_block:()=> '「系統荷官攔下了非法動作。」',
     refund:()=>`${data.who==='hero'?'Hunter':'Opponent'} 未被跟注的 ${data.amount}BB 退回。`,
@@ -183,6 +207,20 @@ function dealerFallback(kind,data={}){
   };
   return (m[kind]||(()=>''))();
 }
+function dealerFact(text){
+  if(!text)return;
+  dealerRemember('dealer',text);
+  appendImmediate(text,'dealer');
+}
+function handStartFact(){
+  const pos=G.heroBTN?'BTN/SB':'BB', cards=G.hole.map(cardCode).join(' ');
+  const actor=G.actor==='hero'?(amountToCall('hero')>0?`現在輪到你行動，需跟注 ${amountToCall('hero')}BB。`:'現在輪到你行動。'):'現在輪到對手行動。';
+  return `Hand ${G.hand}/5。你在 ${pos}，手牌 ${cards}；底池 ${G.pot}BB，${actor}`;
+}
+function streetFact(streetName){
+  return `${streetName}：${G.board.map(cardCode).join('、')}。底池 ${G.pot}BB，${G.actor==='hero'?'現在輪到你行動。':'現在輪到對手行動。'}`;
+}
+
 async function dealerRequest(kind,data={}){
   const fallback=dealerFallback(kind,data);
   if(!DEALER_AI.enabled)return fallback;
@@ -494,18 +532,19 @@ function awardPot(winner){
   if(winner==='hero')G.hero+=won;else G.opp+=won;
   G.pot=0;G.lastPot=won;G.foldWinner=winner;
   assertState('awardPot');
+  dealerFact(`${winner==='hero'?'Hunter':'Opponent'} 贏得 ${won}BB。`);
   finishHand(winner,false);
 }
 function startStreet(street){
   G.street=street;G.heroPut=0;G.oppPut=0;G.currentBet=0;G.lastFullRaise=2;
   G.actionsThisStreet=0;G.checksInRow=0;
   G.actor=G.heroBTN?'opp':'hero'; // postflop: BB acts first
-  let n=street===1?3:1;
+  const n=street===1?3:1;
   for(let i=0;i<n;i++)G.board.push(G.d.pop());
-  dealerSay('street',{street:['','Flop','Turn','River'][street],cards:G.board.slice(-n).map(x=>x.r+x.s)});
-  if(street===3)dealerSay('river');
+  // Street transition is a barrier: facts render before any next-street action.
+  dealerFact(streetFact(['','Flop','Turn','River'][street]));
   render();
-  if(G.actor==='opp')setTimeout(oppTurn,420);
+  if(G.actor==='opp')setTimeout(oppTurn,520);
 }
 function closeStreet(){
   if(G.street===3)return showdown();
@@ -515,17 +554,21 @@ function closeStreet(){
 function runoutAndShowdown(){
   while(G.board.length<5){
     const nextStreet=G.board.length<3?1:G.board.length===3?2:3;
-    let n=nextStreet===1?3:1;
+    const n=nextStreet===1?3:1;
     for(let i=0;i<n;i++)G.board.push(G.d.pop());
-    dealerSay('street',{street:['','Flop','Turn','River'][nextStreet],cards:G.board.slice(-n).map(x=>x.r+x.s)});
+    G.street=nextStreet;
+    dealerFact(`${['','Flop','Turn','River'][nextStreet]}：${G.board.map(cardCode).join('、')}。`);
   }
   G.street=3;showdown();
 }
 function newGame(){
-  G={id:['NPC','GTO','GPT'][Math.floor(Math.random()*3)],p:personas[Math.floor(Math.random()*3)],
+  const dealProfile=chooseDealProfile();
+  G={id:['NPC','GTO','GPT'][Math.floor(Math.random()*3)],p:personas[Math.floor(Math.random()*3)],dealProfile,
      hero:100,opp:100,pot:0,hand:0,history:[],talk:[],dealerMemory:[],ended:false,awaitingNext:false};
   selectedAction=null;textQueue=[];streamBusy=false;skipStream=false;activeStream=null;setFastForward(false);start.classList.add('hidden');game.classList.remove('hidden');
-  dealerSay('game_open');nextHand();
+  dealerFact('牌桌開啟。五手，雙方起始籌碼各 100BB。');
+  appendImmediate(G.p.open,'dealer');dealerRemember('dealer',G.p.open);
+  nextHand();
 }
 function nextHand(){
   if(G.ended)return;
@@ -533,7 +576,7 @@ function nextHand(){
   G.hand++;G.awaitingNext=false;G.showdown=false;selectedQuickSize=null;G.foldWinner=null;
   handResult.classList.add('hidden');handResult.innerHTML='';
   normalControls.classList.remove('hidden');nextControls.classList.add('hidden');
-  G.heroBTN=G.hand%2===1;G.d=deck();G.hole=[G.d.pop(),G.d.pop()];G.oh=[G.d.pop(),G.d.pop()];
+  G.heroBTN=G.hand%2===1;G.d=directedDeck(G.dealProfile);G.hole=[G.d.pop(),G.d.pop()];G.oh=[G.d.pop(),G.d.pop()];
   G.board=[];G.street=0;G.heroPut=0;G.oppPut=0;G.currentBet=2;G.lastFullRaise=2;
   G.actionsThisStreet=0;G.checksInRow=0;
   // Heads-up: BTN posts SB 1BB and acts first preflop; BB posts 2BB.
@@ -541,9 +584,9 @@ function nextHand(){
   else{commit('opp',1);commit('hero',2);G.actor='opp'}
   clearSelection();
   assertState('new hand');
-  dealerSay('hand_start');
+  dealerFact(handStartFact());
   render();
-  if(G.actor==='opp')setTimeout(oppTurn,420);
+  if(G.actor==='opp')setTimeout(oppTurn,520);
 }
 function render(){
   heroStack.textContent=G.hero;oppStack.textContent=G.opp;pot.textContent=G.pot;
@@ -632,10 +675,11 @@ function oppTurn(){
     }else action='check';
   }
   try{
-    if(action==='fold')say('「Fold。」','opp');
-    else if(action==='check')say(oppLine('check'),'opp');
-    else if(action==='call')say(oppLine('call')+` <b>Call ${Math.min(tc,G.opp)}BB</b>`,'opp');
-    else say(oppLine('bet')+` <b>${action==='raise'?'Raise to':'Bet'} ${target}BB</b>`,'opp');
+    // Poker action is always explicit and rendered before any transition it triggers.
+    if(action==='fold')appendImmediate('「Fold。」 <b>Fold</b>','opp');
+    else if(action==='check')appendImmediate(oppLine('check')+' <b>Check</b>','opp');
+    else if(action==='call')appendImmediate(oppLine('call')+` <b>Call ${Math.min(tc,G.opp)}BB</b>`,'opp');
+    else appendImmediate(oppLine('bet')+` <b>${action==='raise'?'Raise to':'Bet'} ${target}BB</b>`,'opp');
     dealerAction('opp',action,target);
     render();
   }catch(e){
@@ -651,12 +695,13 @@ function showdown(){
   let hs=score7([...G.hole,...G.board]),os=score7([...G.oh,...G.board]),r=cmp(hs,os),won=G.pot;
   G.lastPot=won;
   let hc=G.hole.map(x=>x.r+x.s).join(' '),oc=G.oh.map(x=>x.r+x.s).join(' ');
-  dealerSay('showdown',{heroCards:hc,heroHand:hname(hs),oppCards:oc,oppHand:hname(os)});
+  dealerFact(`Showdown。Hunter ${hc}，${hname(hs)}；Opponent ${oc}，${hname(os)}。`);
   let winner='tie';
-  if(r>0){G.hero+=G.pot;winner='hero';dealerSay('pot_award',{winner:'hero',amount:won})}
-  else if(r<0){G.opp+=G.pot;winner='opp';dealerSay('pot_award',{winner:'opp',amount:won})}
-  else{G.hero+=G.pot/2;G.opp+=G.pot/2;dealerSay('tie',{amount:won})}
+  if(r>0){G.hero+=G.pot;winner='hero';dealerFact(`Hunter 贏得 ${won}BB。`)}
+  else if(r<0){G.opp+=G.pot;winner='opp';dealerFact(`Opponent 贏得 ${won}BB。`)}
+  else{G.hero+=G.pot/2;G.opp+=G.pot/2;dealerFact(`平手，平分 ${won}BB。`)}
   G.pot=0;assertState('showdown');finishHand(winner,true,hname(hs),hname(os));
+  setTimeout(()=>dealerSay('showdown_reaction',{winner,amount:won,heroHand:hname(hs),oppHand:hname(os)}),120);
 }
 function finishHand(winner='unknown',sd=false,hn='',on=''){
   clearSelection();showResultBeat(winner,sd,hn,on);
