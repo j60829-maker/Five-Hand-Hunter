@@ -1,7 +1,7 @@
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
 const ALLOWED_EVENTS = new Set([
   'game_open','hand_start','street','river','player_message','invalid_action',
-  'system_block','refund','showdown','pot_award','tie','phase_end'
+  'system_block','refund','showdown','pot_award','tie','phase_end','showdown_reaction'
 ]);
 
 const PERSONA_RULES = {
@@ -92,7 +92,8 @@ function buildInstructions(persona) {
 - event_type = player_message 時，先理解玩家真正的社交意圖：閒聊、撒嬌、吐槽、挑釁、求幫忙、測試邊界。能自然接話就直接接，不要用「收到」「狀態良好」「資訊不在公開資料中」這類客服式模板。
 - 如果玩家說「幫我一下」「拜託啦」這種模糊請求，可以用人格自然追問或提醒界線，例如「要我幫什麼？牌可不能替你打喔。」不要只回「收到」。
 - 拒絕洩密或改牌時也要像角色本人說話，不要像政策公告；可以順手引用程式已鎖定的牌局事實，但不要額外推理。
-- 牌局播報仍以清楚、準確為第一優先；人格是語氣與節奏，不是長篇表演。
+- v0.42 起，正式 Poker facts 由前端程式 deterministic render；你不要重新播報 Pot、Stack、Board、Hole Cards、Action、Street 或勝負。
+- event_type = showdown_reaction 時，只針對已完成的 Showdown 做一句符合人格的短反應，不要重複完整牌面、牌型、底池或勝負播報。
 - 通常 1–2 句。只有玩家主動聊天時，才允許稍微多一點自然反應。
 
 本局人格：${PERSONA_RULES[persona]}`;
