@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FIVE-HAND HUNTER</title>
+<style>
+:root{--bg:#080b0d;--panel:#10161a;--line:#263238;--text:#eef2f3;--muted:#91a0a6;--accent:#d6c19a;--danger:#8b3f3f;--selected:#315b6e;--selectedLine:#6fb3d2}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 8%,#182126 0,#090d0f 48%,#050607 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Segoe UI",sans-serif;min-height:100vh}
+main{max-width:760px;margin:auto;padding:12px 10px 48px}.brand{letter-spacing:.16em;font-size:11px;color:var(--accent)}h1{font-family:Georgia,serif;font-size:28px;margin:6px 0 4px}.tag,.note{color:var(--muted);font-size:12px}.card{background:#10161af2;border:1px solid var(--line);border-radius:15px;padding:12px;margin:8px 0}.row{display:flex;gap:8px;align-items:center;justify-content:space-between}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.stat{padding:8px 4px;border:1px solid var(--line);border-radius:10px;text-align:center}.stat b{display:block;font-size:18px}.stat small{font-size:10px;color:var(--muted)}
+.cards{display:flex;gap:6px;flex-wrap:wrap}.pc{width:40px;height:55px;background:#f4f1e8;color:#111;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800}.red{color:#9b2424}
+.talk{min-height:104px;padding:10px;background:#080c0e;border:1px solid #1c262b;border-radius:12px}.line{margin:0 0 8px;line-height:1.45}.dealer{color:#e6d6b5}.opp{color:#d5e2e8}.hunter{color:#a8d3e6}.sys{color:#75878f;font-size:12px}
+button{border:1px solid #38464d;background:#151d21;color:var(--text);padding:11px 10px;border-radius:11px;font-weight:800;font-size:14px}button.primary{background:#d6c19a;color:#111;border-color:#d6c19a}button.danger{background:#5a2929}button:disabled{opacity:.3}.hidden{display:none!important}.identity{display:grid;grid-template-columns:1fr;gap:7px}.identity button{text-align:left;padding-left:18px;min-height:54px}
+.identity button.selected{background:var(--selected);border-color:var(--selectedLine);box-shadow:0 0 0 1px var(--selectedLine) inset}
+.chat-shell{position:relative}
+.fast-forward{position:absolute;top:7px;right:7px;z-index:4;width:38px;height:34px;min-width:38px;padding:0;border-radius:10px;background:#11191d;border:1px solid #334148;color:#8c9aa0;font-size:17px;line-height:1}
+.fast-forward.active{background:var(--selected);border-color:var(--selectedLine);color:var(--text);box-shadow:0 0 0 1px var(--selectedLine) inset}
+.fast-forward:focus-visible{outline:2px solid var(--selectedLine);outline-offset:2px}
+.talk.with-fast-forward{padding-right:52px}.pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:5px 8px}.big{font-size:21px;font-weight:850}.footer{text-align:center;color:#607078;font-size:11px;margin-top:18px}input[type=range]{width:100%}
+.interaction{margin-top:10px}.quick-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.quick-actions button{padding:10px 4px;font-size:12px;transition:.15s ease}.quick-actions button.selected{background:var(--selected);border-color:var(--selectedLine);box-shadow:0 0 0 1px var(--selectedLine) inset}.quick-actions button.danger.selected{background:#7a3535;border-color:#bf7474}.compose{display:grid;grid-template-columns:1fr 46px;gap:7px;margin-top:8px}.compose input{width:100%;min-width:0;border:1px solid #38464d;background:#0b1013;color:var(--text);border-radius:12px;padding:11px 12px;font-size:15px;outline:none}.compose input:focus{border-color:#627c87}.send{font-size:20px;padding:0}.betpanel{margin-top:8px;padding:9px;border:1px solid #314047;background:#0c1215;border-radius:12px}.betrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}.hint{margin-top:7px;color:#6f8087;font-size:11px;line-height:1.4}
+@media (max-width:430px){main{padding-left:8px;padding-right:8px}.card{padding:10px}.quick-actions{gap:5px}.quick-actions button{font-size:11px}.compose input{font-size:16px}}
+
+main{max-width:760px;padding-top:8px}
+#pokerPhase>.card:first-child{padding:8px 10px;margin:5px 0}
+#pokerPhase>.card:nth-child(2){padding:9px 10px;margin:6px 0}
+.stats{gap:5px}.stat{padding:5px 3px;border-radius:9px}.stat b{font-size:16px;line-height:1.05}.stat small{font-size:9px}
+.pc{width:35px;height:48px;font-size:14px}.big{font-size:18px}.interaction{margin-top:7px}
+.quick-actions button{padding:8px 3px}.compose{margin-top:6px;grid-template-columns:1fr 44px}.compose input{padding:9px 11px}
+.betpanel{margin-top:6px;padding:7px 8px}.hint{display:none}
+.talk{height:205px;min-height:0;overflow-y:auto;padding:9px;scroll-behavior:smooth}.line{margin-bottom:7px}
+.line.streaming{position:relative}.line.streaming::after{content:"▌";opacity:.75;animation:blink .8s steps(1) infinite}.line.pending{opacity:.72}.typing-dots{display:inline-flex;gap:3px;margin-left:4px;vertical-align:middle}.typing-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.35;animation:dotPulse 1s infinite}.typing-dots i:nth-child(2){animation-delay:.15s}.typing-dots i:nth-child(3){animation-delay:.3s}@keyframes blink{50%{opacity:0}}@keyframes dotPulse{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:.9;transform:translateY(-2px)}}
+.action-receipt{min-height:18px;margin:6px 2px 0;color:#9fc6d7;font-size:11px;letter-spacing:.02em;transition:opacity .2s ease}.action-receipt.fade{opacity:.35}.talk-toolbar{display:flex;justify-content:flex-end;margin-top:5px}.talk-toolbar button{padding:6px 10px;font-size:10px;font-weight:800;border-radius:8px;background:#0d1316;color:var(--muted);touch-action:manipulation;min-width:86px}
+.talk-toolbar button.active{color:var(--text);border-color:#607985;background:#18242a;box-shadow:0 0 0 1px #344952 inset}.talk-toolbar button:disabled{opacity:.42}
+.quick-sizes{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}.quick-sizes button{padding:7px 2px;font-size:11px;font-weight:750}
+#transition{padding:18px 14px;text-align:center}.transition-title{font-family:Georgia,serif;font-size:24px;letter-spacing:.08em;margin:3px 0 10px}
+.transition-copy{color:var(--muted);line-height:1.7;margin:0 0 14px}#transition button{width:100%}
+@media(max-width:430px){h1{font-size:24px;margin:4px 0 2px}.tag{margin:3px 0 7px}.pc{width:34px;height:46px}.talk{height:190px}}
+
+
+.table-zone{display:grid;grid-template-columns:72px 1fr 72px;gap:7px;align-items:end}.seat,.board-seat{text-align:center;min-width:0}.seat-label{display:block;color:var(--muted);font-size:9px;margin-bottom:4px}.seat .cards,.board-seat .cards{justify-content:center;gap:3px;flex-wrap:nowrap}.seat .pc{width:31px;height:43px;font-size:12px}.board-seat .pc{width:30px;height:42px;font-size:12px}.pc.back{background:repeating-linear-gradient(45deg,#17242b,#17242b 5px,#243942 5px,#243942 10px);border:1px solid #6f8994;color:transparent}.chat-card,.action-card{margin:6px 0}.action-card{padding:9px 10px}.quick-sizes button.selected{background:var(--selected);border-color:var(--selectedLine)}.result-beat{border:1px solid #53666f;background:#0b1114;border-radius:12px;padding:10px;margin-top:9px}.result-title{font-family:Georgia,serif;letter-spacing:.12em;font-size:15px;color:var(--accent);margin-bottom:7px}.result-line{font-size:13px;line-height:1.55}.result-win{font-size:16px;font-weight:850;margin-top:6px}.next-only button{width:100%;min-height:46px}.phase-overlay{position:fixed;inset:0;z-index:99;background:#050708;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .45s ease}.phase-overlay.show{opacity:1;pointer-events:auto}.phase-mark{text-align:center;letter-spacing:.12em}.phase-mark b{display:block;font-family:Georgia,serif;font-size:24px;color:var(--accent);margin-bottom:9px}.phase-mark span{color:var(--muted);font-size:12px}.identity-compose{display:grid;grid-template-columns:1fr 46px;gap:7px;margin-top:10px}.identity-compose input{width:100%;min-width:0;border:1px solid #38464d;background:#0b1013;color:var(--text);border-radius:12px;padding:10px 12px;font-size:16px}.identity-log{margin-top:8px;min-height:54px;max-height:130px;overflow-y:auto}@media(max-width:430px){.table-zone{grid-template-columns:68px 1fr 68px;gap:4px}.seat .pc{width:29px;height:41px}.board-seat .pc{width:27px;height:39px}.talk{height:170px}}
+</style>
+</head>
+<body>
+<main>
+<div class="brand">FIVE-HAND HUNTER · v0.41</div>
+<h1>誰是獵人，誰是獵物？</h1>
+<p class="tag">五手 Poker。一次身份判斷。</p>
+
+<section id="start" class="card">
+<p><b>Heads-up NLHE · 100BB vs 100BB · 最多五手</b></p>
+<p class="note">對手開局即鎖定 NPC / GTO / GPT，整局不變。</p>
+<button class="primary" onclick="newGame()">START HUNT</button>
+</section>
+
+<section id="game" class="hidden">
+<section id="pokerPhase">
+<div class="card">
+<div class="row"><span>POKER PHASE</span><span id="handNo" class="pill"></span></div>
+<div class="stats" style="margin-top:8px">
+<div class="stat"><b id="heroStack">100</b><small>HUNTER</small></div>
+<div class="stat"><b id="pot">3</b><small>POT</small></div>
+<div class="stat"><b id="oppStack">100</b><small>OPPONENT</small></div>
+</div></div>
+
+<div class="card"><div class="table-zone"><div class="seat"><small class="seat-label">HUNTER</small><div id="hole" class="cards"></div></div><div class="board-seat"><small class="seat-label">BOARD</small><div id="board" class="cards"></div></div><div class="seat"><small class="seat-label">OPPONENT</small><div id="oppHole" class="cards"></div></div></div><div class="row" style="margin-top:8px"><div><div id="street" class="big"></div><div id="actionInfo" class="note"></div></div><span id="positionInfo" class="pill"></span></div><div id="handResult" class="result-beat hidden"></div></div>
+<div class="card chat-card"><div class="chat-shell"><div id="talk" class="talk with-fast-forward"></div><button id="fastForwardBtn" class="fast-forward" type="button" aria-label="切換文字快進模式" aria-pressed="false" title="文字快進">⏩</button></div></div>
+<div id="actionCard" class="card action-card"><div id="normalControls"><div class="interaction" style="margin-top:0"><div class="quick-actions"><button id="checkBtn" onclick="selectAction('check')">CHECK</button><button id="callBtn" onclick="selectAction('call')">CALL</button><button id="betBtn" onclick="selectAction('bet')">BET / RAISE</button><button id="foldBtn" class="danger" onclick="selectAction('fold')">FOLD</button></div><div id="betPanel" class="betpanel hidden"><div id="quickSizes" class="quick-sizes"></div><div class="betrow"><input id="size" type="range" min="2" max="100" value="6" oninput="manualSizeChange()"><span id="sizeLabel" class="pill">6 BB</span></div></div><div class="compose"><input id="messageInput" type="text" maxlength="140" placeholder="跟對手或荷官說話…" onkeydown="if(event.key==='Enter'){event.preventDefault();sendSelected();}"><button class="primary send" onclick="sendSelected()">➤</button></div><div id="actionReceipt" class="action-receipt"></div></div></div><div id="nextControls" class="next-only hidden"><button id="nextHandBtn" class="primary" onclick="continueAfterHand()">NEXT HAND</button></div></div>
+</section>
+
+<div id="transition" class="card hidden">
+<div class="transition-title">POKER PHASE COMPLETE</div>
+<p id="transitionResult" class="transition-copy"></p>
+<p class="transition-copy">對手起身離桌。牌局留下的，只剩五手之中的痕跡。</p>
+<button class="primary" onclick="enterIdentity()">進入身份判斷</button>
+</div>
+<div id="guess" class="card hidden">
+<div class="big">IDENTITY PHASE</div>
+<p class="note">你認為對手的核心機制是？</p>
+<div class="identity">
+<button id="guessNPC" type="button" onclick="selectGuess('NPC')"><b>NPC</b> — Bias</button>
+<button id="guessGTO" type="button" onclick="selectGuess('GTO')"><b>GTO</b> — Baseline</button>
+<button id="guessGPT" type="button" onclick="selectGuess('GPT')"><b>GPT</b> — Bayesian Update</button>
+</div><div class="identity-compose"><input id="identityInput" type="text" maxlength="180" placeholder="輸入你的判斷、理由或想說的話…"><button id="identitySendBtn" class="primary send" onclick="submitIdentity()">➤</button></div><div id="identityLog" class="talk identity-log"><div class="line dealer"><b>Dealer：</b>留下你的判斷。AI 回應將在後續版本接入。</div></div></div><div id="result" class="card hidden"></div>
+</section>
+<div id="phaseOverlay" class="phase-overlay"><div class="phase-mark"><b>READING THE TRACES</b><span>五手已盡。面具仍在。</span></div></div><div class="footer">Prototype v0.41 · Dealer Persona & Conversation Alpha</div>
+</main>
+
+<script>
+/*
+FIVE-HAND HUNTER DEALER ENGINE RULESET v0.39
+Reference baseline: Heads-up NLHE + applicable 2024 Poker TDA all-in/showdown principles.
+Project-specific layer: 5-hand match, persistent stacks, BTN/SB alternation, match winner after Hand 5.
+
+Core invariants:
+1) hero stack + opponent stack + pot == 200BB.
+2) no stack or pot may be negative.
+3) when all-in betting closes, no uncalled chips may remain in the pot.
+4) when one player is all-in and no further betting decision exists, run out board and showdown.
+5) showdown awards the entire contestable pot and leaves pot == 0.
+*/
+const ranks=['2','3','4','5','6','7','8','9','10','J','Q','K','A'],suits=['♠','♥','♦','♣'];let G=null;
+let selectedAction=null,selectedQuickSize=null,selectedGuess=null;
+const personas=[
+{open:'「嘿嘿，新的一桌～五手而已，別一開始就把人嚇跑喔。」',next:'「牌面更新～該你囉。」',river:'「最後一張，別眨眼喔。」',end:'「五手結束～現在告訴我：你覺得他到底是誰？」'},
+{open:'「入座。五手，資訊有限，請有效利用。」',next:'「狀態已更新。行動到你。」',river:'「River。最後一次決策。」',end:'「Poker Phase 結束。提交你的身份判斷。」'},
+{open:'「……五手。」',next:'「輪到你。」',river:'「最後一張。」',end:'「牌局已盡。現在，揭下面具。」'}];
+
+/*
+DEALER PERSONA & CONVERSATION LAYER v0.41
+Principle: the game engine owns facts; AI owns presentation only.
+No API key belongs in this browser file. In the live version, dealerRequest()
+should call our own server endpoint, which then calls the model.
+*/
+const DEALER_AI={
+  enabled:true,
+  endpoint:'/api/dealer',
+  timeoutMs:5000,
+  memoryTurns:10
+};
+
+function dealerRemember(role,text){
+  if(!G)return;
+  if(!Array.isArray(G.dealerMemory))G.dealerMemory=[];
+  const clean=String(text||'').replace(/<[^>]*>/g,'').trim().slice(0,220);
+  if(!clean)return;
+  G.dealerMemory.push({role, text:clean});
+  if(G.dealerMemory.length>DEALER_AI.memoryTurns)G.dealerMemory=G.dealerMemory.slice(-DEALER_AI.memoryTurns);
+}
+function dealerConversation(){
+  return Array.isArray(G?.dealerMemory)?G.dealerMemory.slice(-DEALER_AI.memoryTurns):[];
+}
+
+function dealerPersonaId(){
+  if(!G?.p)return 'unknown';
+  const i=personas.indexOf(G.p);
+  return ['student','executive','moon'][i]||'unknown';
+}
+function cardCode(x){return x?x.r+x.s:null}
+function buildDealerGameState(eventType='state',extra={}){
+  if(!G)return null;
+  return {
+    schema_version:'dealer-state-v1',
+    event_type:eventType,
+    match:{hand:G.hand,total_hands:5,hero_stack:G.hero,opponent_stack:G.opp,pot:G.pot},
+    table:{
+      street:['PREFLOP','FLOP','TURN','RIVER'][G.street]||'PREFLOP',
+      board:(G.board||[]).map(cardCode),
+      hero_hole:(G.hole||[]).map(cardCode),
+      opponent_hole_visible:G.showdown?(G.oh||[]).map(cardCode):null,
+      hero_position:G.heroBTN?'BTN/SB':'BB',
+      actor:G.actor,
+      hero_to_call:G.actor==='hero'?amountToCall('hero'):null,
+      current_bet:G.currentBet||0
+    },
+    dealer:{persona:dealerPersonaId(),conversation:dealerConversation()},
+    constraints:{
+      facts_are_authoritative:true,
+      may_recalculate_pot:false,
+      may_change_stack:false,
+      may_create_cards:false,
+      may_choose_poker_action:false,
+      may_hint_opponent_identity:false,
+      may_give_strategy_advice:false
+    },
+    extra
+  };
+}
+function dealerFallback(kind,data={}){
+  const p=G?.p||personas[1];
+  const m={
+    game_open:()=>p.open,
+    hand_start:()=>`Hand ${G.hand}。${G.heroBTN?'你在 BTN / SB。':'你在 BB。'} ${p.next}`,
+    street:()=>`${data.street||''}：${(data.cards||[]).join(' ')}`,
+    river:()=>p.river,
+    player_message:()=> '「收到。」',
+    invalid_action:()=>`「動作無效：${data.message||'請重新操作'}」`,
+    system_block:()=> '「系統荷官攔下了非法動作。」',
+    refund:()=>`${data.who==='hero'?'Hunter':'Opponent'} 未被跟注的 ${data.amount}BB 退回。`,
+    showdown:()=>`Showdown。Hunter ${data.heroCards||''}，${data.heroHand||''}；Opponent ${data.oppCards||''}，${data.oppHand||''}。`,
+    pot_award:()=>`${data.winner==='hero'?'Hunter':'Opponent'} 贏得 ${data.amount}BB。`,
+    tie:()=>`平手，平分 ${data.amount}BB。`,
+    phase_end:()=>`Poker Phase 結束。${data.verdict||''}`
+  };
+  return (m[kind]||(()=>''))();
+}
+async function dealerRequest(kind,data={}){
+  const fallback=dealerFallback(kind,data);
+  if(!DEALER_AI.enabled)return fallback;
+  const state=buildDealerGameState(kind,data);
+  try{
+    const ctl=new AbortController();
+    const timer=setTimeout(()=>ctl.abort(),DEALER_AI.timeoutMs);
+    const res=await fetch(DEALER_AI.endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(state),signal:ctl.signal});
+    clearTimeout(timer);
+    if(!res.ok)throw new Error(`dealer api ${res.status}`);
+    const out=await res.json();
+    if(!out||typeof out.text!=='string'||!out.text.trim())throw new Error('dealer api invalid response');
+    return out.text.trim();
+  }catch(e){
+    console.warn('Dealer AI fallback',e);
+    return fallback;
+  }
+}
+async function dealerSay(kind,data={}){
+  const text=await dealerRequest(kind,data);
+  if(text){
+    dealerRemember('dealer',text);
+    say(text,'dealer');
+  }
+}
+
+function deck(){let a=[];for(const r of ranks)for(const s of suits)a.push({r,s});for(let i=a.length-1;i;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function card(x){return `<div class="pc ${x.s==='♥'||x.s==='♦'?'red':''}">${x.r}${x.s}</div>`}
+function cardBack(){return '<div class="pc back">■</div>'}
+function v(r){return ranks.indexOf(r)+2}
+function cmp(a,b){for(let i=0;i<Math.max(a.length,b.length);i++){let x=a[i]||0,y=b[i]||0;if(x!==y)return x-y}return 0}
+function score7(cs){let best=null,n=cs.length;function five(a){let vs=a.map(x=>v(x.r)).sort((a,b)=>b-a),cnt={};vs.forEach(x=>cnt[x]=(cnt[x]||0)+1);let g=Object.entries(cnt).map(([x,n])=>[+x,n]).sort((a,b)=>b[1]-a[1]||b[0]-a[0]),flush=a.every(x=>x.s===a[0].s),u=[...new Set(vs)];if(u[0]===14)u.push(1);let st=0;for(let i=0;i<=u.length-5;i++)if(u[i]-u[i+4]===4)st=Math.max(st,u[i]);if(flush&&st)return[8,st];if(g[0][1]===4)return[7,g[0][0],g[1][0]];if(g[0][1]===3&&g[1]?.[1]>=2)return[6,g[0][0],g[1][0]];if(flush)return[5,...vs];if(st)return[4,st];if(g[0][1]===3)return[3,g[0][0],...g.slice(1).map(x=>x[0])];if(g[0][1]===2&&g[1]?.[1]===2)return[2,Math.max(g[0][0],g[1][0]),Math.min(g[0][0],g[1][0]),g[2]?.[0]||0];if(g[0][1]===2)return[1,g[0][0],...g.slice(1).map(x=>x[0])];return[0,...vs]}
+for(let a=0;a<n-4;a++)for(let b=a+1;b<n-3;b++)for(let c=b+1;c<n-2;c++)for(let d=c+1;d<n-1;d++)for(let e=d+1;e<n;e++){let s=five([cs[a],cs[b],cs[c],cs[d],cs[e]]);if(!best||cmp(s,best)>0)best=s}return best}
+function hname(s){return['High Card','One Pair','Two Pair','Three of a Kind','Straight','Flush','Full House','Four of a Kind','Straight Flush'][s[0]]}
+function strength(h,b=[]){if(b.length<3){let a=v(h[0].r),c=v(h[1].r);return Math.min(1,(a+c)/28+(a===c?.22:0)+(h[0].s===h[1].s?.06:0))}let s=score7([...h,...b]);return Math.min(1,.15+s[0]*.105+(s[1]||0)/100)}
+let textQueue=[],streamBusy=false,skipStream=false,activeStream=null,fastForwardMode=false;
+function roleMeta(w){return {cls:w==='dealer'?'dealer':w==='opp'?'opp':w==='hunter'?'hunter':'sys',lab:w==='dealer'?'Dealer：':w==='opp'?'Opponent：':w==='hunter'?'Hunter：':''}}
+function stripTags(html){const d=document.createElement('div');d.innerHTML=html;return d.textContent||d.innerText||''}
+function say(t,w='sys'){
+  // Hard system/Hunter confirmations appear immediately; Dealer/Opponent dialogue streams unless fast-forward is enabled.
+  if(w==='hunter'||w==='sys'||fastForwardMode)return appendImmediate(t,w);
+  textQueue.push({t,w});pumpTextQueue();
+}
+function appendImmediate(t,w='sys'){
+  const {cls,lab}=roleMeta(w);G.talk.push(`<div class="line ${cls}"><b>${lab}</b>${t}</div>`);renderTalkLog();
+}
+function renderTalkLog(extra=''){talk.innerHTML=G.talk.join('')+extra;talk.scrollTop=talk.scrollHeight}
+function pendingMarkup(w){const {cls,lab}=roleMeta(w);return `<div class="line ${cls} pending"><b>${lab}</b><span class="typing-dots"><i></i><i></i><i></i></span></div>`}
+function updateFastForwardButton(){
+  const btn=document.getElementById('fastForwardBtn');
+  if(!btn)return;
+  btn.classList.toggle('active',fastForwardMode);
+  btn.setAttribute('aria-pressed',fastForwardMode?'true':'false');
+  btn.title=fastForwardMode?'文字快進：開啟':'文字快進：關閉';
+}
+function setFastForward(on){
+  fastForwardMode=!!on;
+  updateFastForwardButton();
+  if(fastForwardMode&&streamBusy&&activeStream){
+    skipStream=true;
+    renderTalkLog(`<div class="line ${activeStream.cls}"><b>${activeStream.lab}</b>${activeStream.fullHtml}</div>`);
+  }
+  if(fastForwardMode&&textQueue.length){
+    const queued=textQueue.splice(0);
+    for(const item of queued)appendImmediate(item.t,item.w);
+  }
+}
+function toggleFastForward(){setFastForward(!fastForwardMode)}
+async function pumpTextQueue(){
+  if(streamBusy||!G)return;streamBusy=true;
+  while(textQueue.length){
+    if(fastForwardMode){
+      const item=textQueue.shift();appendImmediate(item.t,item.w);continue;
+    }
+    const item=textQueue.shift(),{cls,lab}=roleMeta(item.w);
+    skipStream=false;
+    const fullHtml=item.t,plain=stripTags(fullHtml);
+    activeStream={item,fullHtml,plain,cls,lab};
+    renderTalkLog(pendingMarkup(item.w));
+    await wait(item.w==='opp'?130:90);
+    let shown='';
+    for(let i=0;i<plain.length;i++){
+      if(skipStream||fastForwardMode){shown=plain;break}
+      shown+=plain[i];
+      renderTalkLog(`<div class="line ${cls} streaming"><b>${lab}</b>${escapeHtml(shown)}</div>`);
+      const ch=plain[i];
+      await wait(/[。！？!?]/.test(ch)?120:/[，、；：…]/.test(ch)?70:(item.w==='opp'?28:24));
+    }
+    G.talk.push(`<div class="line ${cls}"><b>${lab}</b>${fullHtml}</div>`);renderTalkLog();
+    activeStream=null;
+    await wait(fastForwardMode?0:(item.w==='opp'?70:45));
+  }
+  streamBusy=false;activeStream=null;
+}
+document.addEventListener("DOMContentLoaded",()=>{
+  const btn=document.getElementById('fastForwardBtn');
+  if(btn)btn.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();toggleFastForward();});
+  updateFastForwardButton();
+});
+function wait(ms){return new Promise(r=>setTimeout(r,ms))}
+function oppLine(k){let p={NPC:{call:['「嗯……跟。」','「這個尺度很煩欸。Call。」','「我不信你每次都有。」'],bet:['「這張我喜歡。」','「來啊，看你跟不跟。」','「這裡我下注。」'],check:['「……過。」','「你先。」','「Check。」']},GTO:{call:['「這個價格可以。」','「繼續。」','「Call。」'],bet:['「這裡我會下注。」','「輪到你做決定。」','「Bet。」'],check:['「Check。」','「過。」','「保留範圍。」']},GPT:{call:['「先跟。」','「我記下來了。」','「看看下一步。」'],bet:['「這裡我下注。」','「換你決定。」','「Bet。」'],check:['「先看看。」','「Check。」','「你來。」']}};let a=p[G.id][k];return a[Math.floor(Math.random()*a.length)]}
+
+function assertState(tag=''){
+  const total=G.hero+G.opp+G.pot;
+  if(Math.abs(total-200)>0.001){
+    console.error('DEALER ENGINE CHIP ERROR',tag,{hero:G.hero,opp:G.opp,pot:G.pot,total});
+    throw new Error(`Dealer Engine: chip conservation failed (${total}BB)`);
+  }
+  if(G.hero<0||G.opp<0||G.pot<0)throw new Error('Dealer Engine: negative chips');
+}
+function seatStack(who){return who==='hero'?G.hero:G.opp}
+function setSeatStack(who,x){if(who==='hero')G.hero=x;else G.opp=x}
+function contrib(who){return who==='hero'?G.heroPut:G.oppPut}
+function setContrib(who,x){if(who==='hero')G.heroPut=x;else G.oppPut=x}
+function other(who){return who==='hero'?'opp':'hero'}
+function commit(who,amount){
+  amount=Math.max(0,Math.min(amount,seatStack(who)));
+  setSeatStack(who,seatStack(who)-amount);
+  setContrib(who,contrib(who)+amount);
+  G.pot+=amount;
+  return amount;
+}
+function amountToCall(who){return Math.max(0,G.currentBet-contrib(who))}
+function canCheck(who){return amountToCall(who)===0}
+function minRaiseTo(who){
+  if(G.currentBet===0)return Math.max(2,G.lastFullRaise);
+  return G.currentBet+G.lastFullRaise;
+}
+function maxRaiseTo(who){return contrib(who)+seatStack(who)}
+function legalActions(who){
+  let tc=amountToCall(who),acts=['fold'];
+  if(tc===0)acts.push('check'); else acts.push('call');
+  if(seatStack(who)>tc){
+    if(G.currentBet===0)acts.push('bet');
+    else if(maxRaiseTo(who)>G.currentBet)acts.push('raise');
+  }
+  return acts;
+}
+function refundUncalledExcess(){
+  // Heads-up NLHE: once betting is complete and one player cannot match the
+  // other's contribution, the unmatched excess is not part of the pot.
+  const low=Math.min(G.heroPut,G.oppPut);
+  let refund=0,who=null;
+  if(G.heroPut>low){
+    refund=G.heroPut-low;who='hero';
+    G.heroPut=low;G.hero+=refund;G.pot-=refund;
+  }else if(G.oppPut>low){
+    refund=G.oppPut-low;who='opp';
+    G.oppPut=low;G.opp+=refund;G.pot-=refund;
+  }
+  if(refund>0){
+    dealerSay('refund',{who,amount:refund});
+    assertState('refund uncalled excess');
+  }
+  return {who,refund};
+}
+function bettingClosedByAllIn(){
+  return (G.hero===0||G.opp===0) && G.heroPut===G.oppPut;
+}
+function assertNoUncalledChips(tag=''){
+  if((G.hero===0||G.opp===0) && G.heroPut!==G.oppPut){
+    throw new Error(`Dealer Engine: uncalled chips remain at betting close (${tag})`);
+  }
+}
+function dealerAction(who,type,target=null){
+  if(G.ended||G.awaitingNext)throw new Error('Dealer Engine: hand is not accepting actions');
+  if(G.actor!==who)throw new Error(`Dealer Engine: action out of turn (${who})`);
+  const legal=legalActions(who);
+  if(!legal.includes(type))throw new Error(`Dealer Engine: illegal ${type} by ${who}`);
+  const tc=amountToCall(who),beforeBet=G.currentBet;
+  let paid=0,fullRaise=false;
+  if(type==='fold'){
+    awardPot(other(who));
+    return {type,paid:0,handOver:true};
+  }
+  if(type==='check'){
+    G.checksInRow++;
+  }else if(type==='call'){
+    paid=commit(who,tc);
+    G.checksInRow=0;
+  }else if(type==='bet'||type==='raise'){
+    const maxTo=maxRaiseTo(who);
+    let wanted=Math.round(Number(target)||0);
+    if(wanted<=G.currentBet)throw new Error('Dealer Engine: raise target must exceed current bet');
+    wanted=Math.min(wanted,maxTo);
+    const minTo=minRaiseTo(who);
+    const isAllIn=wanted===maxTo;
+    if(wanted<minTo&&!isAllIn)throw new Error(`Dealer Engine: minimum raise is ${minTo}BB`);
+    paid=commit(who,wanted-contrib(who));
+    G.currentBet=contrib(who);
+    const raiseSize=G.currentBet-beforeBet;
+    if(raiseSize>=G.lastFullRaise){
+      G.lastFullRaise=raiseSize;
+      fullRaise=true;
+    }
+    G.checksInRow=0;
+  }
+  G.actionsThisStreet++;
+  assertState(`${who}:${type}`);
+
+  // Betting round closes when contributions match after both sides have acted,
+  // or when both players check.
+  let matched=G.heroPut===G.oppPut;
+  const bothChecked=G.checksInRow>=2;
+  const allIn=G.hero===0||G.opp===0;
+
+  // In heads-up play, a short all-in call can never win the unmatched part
+  // of the larger wager. Once both players have acted, return that excess
+  // before closing betting and running out the board.
+  if(allIn && G.actionsThisStreet>=2 && !matched){
+    refundUncalledExcess();
+    matched=G.heroPut===G.oppPut;
+  }
+  if(allIn && matched){
+    assertNoUncalledChips('all-in close');
+    runoutAndShowdown();
+    return {type,paid,handOver:true};
+  }
+  if((matched&&G.actionsThisStreet>=2)||bothChecked){
+    closeStreet();
+    return {type,paid,streetClosed:true};
+  }
+  G.actor=other(who);
+  return {type,paid,fullRaise};
+}
+
+
+function previewDealerPayload(eventType='debug'){
+  const payload=buildDealerGameState(eventType,{note:'Developer preview only'});
+  console.log('DEALER AI PAYLOAD',payload);
+  return payload;
+}
+
+function runDealerRegressionTests(){
+  const saved=G;
+  const results=[];
+  function test(name,fn){
+    try{fn();results.push({name,ok:true})}
+    catch(e){results.push({name,ok:false,error:e.message})}
+  }
+  function eq(actual,expected,label){
+    if(actual!==expected)throw new Error(`${label}: expected ${expected}, got ${actual}`);
+  }
+  function baseState(hero=100,opp=100){
+    G={hero,opp,pot:0,heroPut:0,oppPut:0,currentBet:0,lastFullRaise:2,
+       actionsThisStreet:0,checksInRow:0,ended:false,awaitingNext:false,
+       talk:[],board:[],d:[],street:0,actor:'hero'};
+  }
+
+  test('chip conservation',()=>{
+    baseState();commit('hero',25);commit('opp',25);
+    eq(G.hero+G.opp+G.pot,200,'total chips');
+  });
+
+  test('short all-in call refunds unmatched hero excess',()=>{
+    baseState(100,20);
+    commit('hero',100);G.currentBet=100;G.actionsThisStreet=1;
+    G.actor='opp';
+    commit('opp',20);G.actionsThisStreet=2;
+    const r=refundUncalledExcess();
+    eq(r.who,'hero','refund seat');
+    eq(r.refund,80,'refund amount');
+    eq(G.hero,80,'hero returned stack');
+    eq(G.opp,0,'opponent stack');
+    eq(G.pot,40,'matched pot');
+    eq(G.heroPut,20,'hero matched contribution');
+    eq(G.oppPut,20,'opponent matched contribution');
+    assertNoUncalledChips('regression');
+  });
+
+  test('short all-in call refunds unmatched opponent excess',()=>{
+    baseState(15,100);
+    commit('opp',100);G.currentBet=100;G.actionsThisStreet=1;
+    G.actor='hero';
+    commit('hero',15);G.actionsThisStreet=2;
+    const r=refundUncalledExcess();
+    eq(r.who,'opp','refund seat');
+    eq(r.refund,85,'refund amount');
+    eq(G.hero,0,'hero stack');
+    eq(G.opp,85,'opponent returned stack');
+    eq(G.pot,30,'matched pot');
+  });
+
+  test('no refund when contributions match',()=>{
+    baseState(40,40);
+    commit('hero',40);commit('opp',40);
+    const r=refundUncalledExcess();
+    eq(r.refund,0,'refund');
+    eq(G.pot,80,'pot');
+  });
+
+  test('all-in close invariant rejects unmatched chips',()=>{
+    baseState(0,50);
+    G.heroPut=20;G.oppPut=50;G.pot=70;
+    let threw=false;
+    try{assertNoUncalledChips('expected failure')}catch(e){threw=true}
+    if(!threw)throw new Error('invariant failed to detect uncalled chips');
+  });
+
+  G=saved;
+  const failed=results.filter(x=>!x.ok);
+  console.table(results);
+  if(failed.length)throw new Error(`Dealer regression failed: ${failed.length}/${results.length}`);
+  return {passed:results.length,failed:0,results};
+}
+
+function awardPot(winner){
+  const won=G.pot;
+  if(winner==='hero')G.hero+=won;else G.opp+=won;
+  G.pot=0;G.lastPot=won;G.foldWinner=winner;
+  assertState('awardPot');
+  finishHand(winner,false);
+}
+function startStreet(street){
+  G.street=street;G.heroPut=0;G.oppPut=0;G.currentBet=0;G.lastFullRaise=2;
+  G.actionsThisStreet=0;G.checksInRow=0;
+  G.actor=G.heroBTN?'opp':'hero'; // postflop: BB acts first
+  let n=street===1?3:1;
+  for(let i=0;i<n;i++)G.board.push(G.d.pop());
+  dealerSay('street',{street:['','Flop','Turn','River'][street],cards:G.board.slice(-n).map(x=>x.r+x.s)});
+  if(street===3)dealerSay('river');
+  render();
+  if(G.actor==='opp')setTimeout(oppTurn,420);
+}
+function closeStreet(){
+  if(G.street===3)return showdown();
+  if(G.hero===0||G.opp===0)return runoutAndShowdown();
+  startStreet(G.street+1);
+}
+function runoutAndShowdown(){
+  while(G.board.length<5){
+    const nextStreet=G.board.length<3?1:G.board.length===3?2:3;
+    let n=nextStreet===1?3:1;
+    for(let i=0;i<n;i++)G.board.push(G.d.pop());
+    dealerSay('street',{street:['','Flop','Turn','River'][nextStreet],cards:G.board.slice(-n).map(x=>x.r+x.s)});
+  }
+  G.street=3;showdown();
+}
+function newGame(){
+  G={id:['NPC','GTO','GPT'][Math.floor(Math.random()*3)],p:personas[Math.floor(Math.random()*3)],
+     hero:100,opp:100,pot:0,hand:0,history:[],talk:[],dealerMemory:[],ended:false,awaitingNext:false};
+  selectedAction=null;textQueue=[];streamBusy=false;skipStream=false;activeStream=null;setFastForward(false);start.classList.add('hidden');game.classList.remove('hidden');
+  dealerSay('game_open');nextHand();
+}
+function nextHand(){
+  if(G.ended)return;
+  if(G.hand>=5||G.hero<=0||G.opp<=0)return endGame();
+  G.hand++;G.awaitingNext=false;G.showdown=false;selectedQuickSize=null;G.foldWinner=null;
+  handResult.classList.add('hidden');handResult.innerHTML='';
+  normalControls.classList.remove('hidden');nextControls.classList.add('hidden');
+  G.heroBTN=G.hand%2===1;G.d=deck();G.hole=[G.d.pop(),G.d.pop()];G.oh=[G.d.pop(),G.d.pop()];
+  G.board=[];G.street=0;G.heroPut=0;G.oppPut=0;G.currentBet=2;G.lastFullRaise=2;
+  G.actionsThisStreet=0;G.checksInRow=0;
+  // Heads-up: BTN posts SB 1BB and acts first preflop; BB posts 2BB.
+  if(G.heroBTN){commit('hero',1);commit('opp',2);G.actor='hero'}
+  else{commit('opp',1);commit('hero',2);G.actor='opp'}
+  clearSelection();
+  assertState('new hand');
+  dealerSay('hand_start');
+  render();
+  if(G.actor==='opp')setTimeout(oppTurn,420);
+}
+function render(){
+  heroStack.textContent=G.hero;oppStack.textContent=G.opp;pot.textContent=G.pot;
+  hole.innerHTML=G.hole.map(card).join('');board.innerHTML=G.board.map(card).join('');
+  oppHole.innerHTML=(G.showdown?G.oh.map(card):[0,0].map(cardBack)).join('');
+  street.textContent=['PREFLOP','FLOP','TURN','RIVER'][G.street];
+  const tc=G.actor==='hero'?amountToCall('hero'):0;
+  actionInfo.textContent=G.actor!=='hero'?'對手行動中':tc>0?`面對 ${tc} BB`:'輪到你';
+  handNo.textContent=`HAND ${G.hand} / 5`;positionInfo.textContent=G.heroBTN?'BTN':'BB';
+  const heroTurn=G.actor==='hero'&&!G.awaitingNext&&!G.ended;
+  callBtn.disabled=!heroTurn||tc<=0;checkBtn.disabled=!heroTurn||tc>0;foldBtn.disabled=!heroTurn;
+  betBtn.disabled=!heroTurn||seatStack('hero')<=tc;
+  const minTo=Math.min(maxRaiseTo('hero'),minRaiseTo('hero'));
+  size.min=Math.max(1,minTo);size.max=Math.max(+size.min,Math.floor(maxRaiseTo('hero')));
+  size.value=Math.max(+size.min,Math.min(+size.value,+size.max));
+  renderQuickSizes();updateSizeLabel();
+}
+function setBetSize(x,key){selectedQuickSize=key;size.value=Math.max(+size.min,Math.min(+size.max,Math.round(x)));updateSizeLabel();renderQuickSizes()}
+function manualSizeChange(){selectedQuickSize=null;updateSizeLabel();renderQuickSizes()}
+function renderQuickSizes(){
+  if(!G||!quickSizes)return;
+  let opts;
+  if(G.street===0){
+    opts=[['2×',4,'2x'],['2.5×',5,'25x'],['3×',6,'3x'],['4×',8,'4x']];
+  }else{
+    const base=G.currentBet===0?G.pot:G.pot+amountToCall('hero');
+    opts=[['⅓ POT',Math.max(minRaiseTo('hero'),G.currentBet+base/3),'third'],
+          ['½ POT',Math.max(minRaiseTo('hero'),G.currentBet+base/2),'half'],
+          ['¾ POT',Math.max(minRaiseTo('hero'),G.currentBet+base*.75),'threeq'],
+          ['POT',Math.max(minRaiseTo('hero'),G.currentBet+base),'pot']];
+  }
+  quickSizes.innerHTML=opts.map(([lab,val,key])=>{
+    let x=Math.max(+size.min,Math.min(+size.max,Math.round(val)));
+    return `<button type="button" class="${selectedQuickSize===key?'selected':''}" onclick="setBetSize(${x},'${key}')">${lab}</button>`;
+  }).join('');
+}
+function updateSizeLabel(){sizeLabel.textContent=size.value+' BB';if(selectedAction==='bet')betBtn.textContent=`${G&&G.currentBet>0?'RAISE TO':'BET'} ${size.value}BB`}
+function clearSelection(){selectedAction=null;selectedQuickSize=null;['checkBtn','callBtn','betBtn','foldBtn'].forEach(id=>document.getElementById(id)?.classList.remove('selected'));betPanel.classList.add('hidden');if(betBtn)betBtn.textContent='BET / RAISE'}
+function selectAction(a){
+  if(!G||G.ended||G.awaitingNext||G.actor!=='hero')return;
+  const map={check:checkBtn,call:callBtn,bet:betBtn,fold:foldBtn};if(map[a].disabled)return;
+  if(selectedAction===a)return executeAction(a,'');
+  clearSelection();selectedAction=a;map[a].classList.add('selected');
+  if(a==='bet'){betPanel.classList.remove('hidden');renderQuickSizes();updateSizeLabel()}
+}
+function sendSelected(){
+  if(!G||G.ended)return;let msg=messageInput.value.trim();
+  if(selectedAction){let a=selectedAction;messageInput.value='';return executeAction(a,msg)}
+  if(msg){say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg);messageInput.value='';setTimeout(()=>dealerSay('player_message',{message:msg}),120)}
+}
+function escapeHtml(s){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function showActionReceipt(text){if(!actionReceipt)return;actionReceipt.textContent='✓ '+text;actionReceipt.classList.remove('fade');clearTimeout(showActionReceipt.t);showActionReceipt.t=setTimeout(()=>actionReceipt.classList.add('fade'),900)}
+function executeAction(a,msg){if(msg){say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg)}clearSelection();heroAction(a)}
+function heroAction(a){
+  if(G.actor!=='hero')return;
+  try{
+    if(a==='fold'){showActionReceipt('Fold');say('Hunter Fold。');dealerAction('hero','fold');return}
+    if(a==='check'){showActionReceipt('Check');say('Hunter Check。');dealerAction('hero','check')}
+    if(a==='call'){let tc=amountToCall('hero');showActionReceipt(`Call ${Math.min(tc,G.hero)}BB`);say(`Hunter Call ${Math.min(tc,G.hero)}BB。`);dealerAction('hero','call')}
+    if(a==='bet'){
+      let type=G.currentBet===0?'bet':'raise',target=+size.value;
+      showActionReceipt(`${type==='raise'?'Raise to':'Bet'} ${target}BB`);say(`Hunter ${type==='raise'?'Raise to':'Bet'} ${target}BB。`);
+      dealerAction('hero',type,target);
+    }
+    render();
+    if(!G.awaitingNext&&!G.ended&&G.actor==='opp')setTimeout(oppTurn,420);
+  }catch(e){dealerSay('invalid_action',{message:e.message});render()}
+}
+function oppRespond(){return oppTurn()}
+function oppTurn(){
+  if(!G||G.ended||G.awaitingNext||G.actor!=='opp')return;
+  const tc=amountToCall('opp'),st=strength(G.oh,G.board),legal=legalActions('opp');
+  let action='check',target=null;
+  // Prototype strategy only; Dealer Engine controls legality and accounting.
+  if(tc>0){
+    const potOdds=tc/(G.pot+tc);
+    const foldChance=Math.max(.04,Math.min(.72,potOdds*.9-st*.38+(G.id==='NPC'?.04:G.id==='GPT'?.01:0)));
+    if(legal.includes('fold')&&Math.random()<foldChance)action='fold';
+    else if(legal.includes('raise')&&st>.72&&Math.random()<.18){
+      action='raise';target=Math.min(maxRaiseTo('opp'),Math.max(minRaiseTo('opp'),Math.round(G.currentBet+Math.max(G.lastFullRaise,G.pot*.45))));
+    }else action='call';
+  }else{
+    const betChance=G.id==='NPC'?.28+st*.22:G.id==='GTO'?.25+st*.20:.24+st*.18;
+    if(legal.includes('bet')&&Math.random()<betChance){
+      action='bet';target=Math.min(maxRaiseTo('opp'),Math.max(minRaiseTo('opp'),Math.round(Math.max(2,G.pot*(G.id==='GTO'?.55:.65)))));
+    }else action='check';
+  }
+  try{
+    if(action==='fold')say('「Fold。」','opp');
+    else if(action==='check')say(oppLine('check'),'opp');
+    else if(action==='call')say(oppLine('call')+` <b>Call ${Math.min(tc,G.opp)}BB</b>`,'opp');
+    else say(oppLine('bet')+` <b>${action==='raise'?'Raise to':'Bet'} ${target}BB</b>`,'opp');
+    dealerAction('opp',action,target);
+    render();
+  }catch(e){
+    console.error(e);dealerSay('system_block');
+    // Safe fallback: check when possible, otherwise call/fold.
+    const fallback=canCheck('opp')?'check':(legalActions('opp').includes('call')?'call':'fold');
+    dealerAction('opp',fallback);render();
+  }
+}
+function showdown(){
+  while(G.board.length<5)G.board.push(G.d.pop());
+  G.showdown=true;
+  let hs=score7([...G.hole,...G.board]),os=score7([...G.oh,...G.board]),r=cmp(hs,os),won=G.pot;
+  G.lastPot=won;
+  let hc=G.hole.map(x=>x.r+x.s).join(' '),oc=G.oh.map(x=>x.r+x.s).join(' ');
+  dealerSay('showdown',{heroCards:hc,heroHand:hname(hs),oppCards:oc,oppHand:hname(os)});
+  let winner='tie';
+  if(r>0){G.hero+=G.pot;winner='hero';dealerSay('pot_award',{winner:'hero',amount:won})}
+  else if(r<0){G.opp+=G.pot;winner='opp';dealerSay('pot_award',{winner:'opp',amount:won})}
+  else{G.hero+=G.pot/2;G.opp+=G.pot/2;dealerSay('tie',{amount:won})}
+  G.pot=0;assertState('showdown');finishHand(winner,true,hname(hs),hname(os));
+}
+function finishHand(winner='unknown',sd=false,hn='',on=''){
+  clearSelection();showResultBeat(winner,sd,hn,on);
+}
+function showResultBeat(winner,sd,hn='',on=''){
+  G.awaitingNext=true;G.actor=null;normalControls.classList.add('hidden');nextControls.classList.remove('hidden');
+  let finalPhase=(G.hand>=5||G.hero<=0||G.opp<=0);nextHandBtn.textContent=finalPhase?'CONTINUE':'NEXT HAND';
+  let lines=sd?`<div class="result-line">Hunter：${G.hole.map(x=>x.r+x.s).join(' ')} — ${hn}</div><div class="result-line">Opponent：${G.oh.map(x=>x.r+x.s).join(' ')} — ${on}</div>`:`<div class="result-line">Opponent hole cards unrevealed.</div>`;
+  handResult.innerHTML=`<div class="result-title">${sd?'SHOWDOWN':'HAND COMPLETE'}</div>${lines}<div class="note" style="margin-top:5px">Hunter ${G.hero}BB ｜ Opponent ${G.opp}BB</div>`;
+  handResult.classList.remove('hidden');render();
+}
+function continueAfterHand(){if(!G.awaitingNext)return;G.awaitingNext=false;if(G.hand>=5||G.hero<=0||G.opp<=0)endGame();else nextHand()}
+function endGame(){
+  G.ended=true;G.actor=null;clearSelection();
+  let verdict=G.hero>G.opp?'Hunter 勝出。':G.hero<G.opp?'Opponent 勝出。':'籌碼持平。';
+  dealerSay('phase_end',{verdict});phaseOverlay.classList.add('show');
+  setTimeout(()=>{pokerPhase.classList.add('hidden');transition.classList.remove('hidden');transitionResult.textContent=`最終籌碼：Hunter ${G.hero}BB｜Opponent ${G.opp}BB。${verdict}`;phaseOverlay.classList.remove('show')},950)
+}
+
+function enterIdentity(){selectedGuess=null;updateGuessButtons();phaseOverlay.classList.add('show');setTimeout(()=>{transition.classList.add('hidden');guess.classList.remove('hidden');phaseOverlay.classList.remove('show')},700)}
+function updateGuessButtons(){
+  ['NPC','GTO','GPT'].forEach(x=>{
+    const b=document.getElementById('guess'+x);
+    if(b)b.classList.toggle('selected',selectedGuess===x);
+  });
+}
+function selectGuess(x){
+  if(!G?.ended)return;
+  selectedGuess=x;
+  updateGuessButtons();
+}
+function submitIdentity(){
+  if(!G?.ended)return;
+  const t=identityInput.value.trim();
+  if(!selectedGuess){
+    identityLog.innerHTML+=`<div class="line dealer"><b>Dealer：</b>請先選擇 NPC、GTO 或 GPT。</div>`;
+    identityLog.scrollTop=identityLog.scrollHeight;
+    return;
+  }
+  const reason=t;
+  identityInput.value='';
+  revealIdentity(selectedGuess,reason);
+}
+function revealIdentity(x,reason=''){
+  guess.classList.add('hidden');result.classList.remove('hidden');
+  let ok=x===G.id,why={NPC:'Bias：有穩定個人偏差；會說話、會記得，不等於真正更新核心策略。',GTO:'Baseline：核心維持穩定策略基準，不因少量刺激大幅漂移。',GPT:'Bayesian Update：會把跨手 evidence 累積進 Hunter Model，再調整後續行為。'}[G.id];
+  const reasonHtml=reason?`<p>你的理由：${escapeHtml(reason)}</p>`:'';
+  result.innerHTML=`<div class="big">${ok?'✓ HUNT SUCCESS':'✕ MASK HELD'}</div><p>你的答案：<b>${x}</b></p>${reasonHtml}<p>REVEAL：<b>${G.id}</b></p><p class="note">${why}</p><button class="primary" onclick="location.reload()">再獵一次</button>`;
+  result.scrollIntoView({behavior:'smooth'});
+}
+</script>
+</body></html>
