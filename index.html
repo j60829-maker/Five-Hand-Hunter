@@ -42,7 +42,7 @@ main{max-width:760px;padding-top:8px}
 </head>
 <body>
 <main>
-<div class="brand">FIVE-HAND HUNTER · v0.43</div>
+<div class="brand">FIVE-HAND HUNTER · v0.44</div>
 <h1>誰是獵人，誰是獵物？</h1>
 <p class="tag">五手 Poker。一次身份判斷。</p>
 
@@ -82,7 +82,7 @@ main{max-width:760px;padding-top:8px}
 <button id="guessGPT" type="button" onclick="selectGuess('GPT')"><b>GPT</b> — Bayesian Update</button>
 </div><div class="identity-compose"><input id="identityInput" type="text" maxlength="180" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="輸入你的判斷、理由或想說的話…"><button id="identitySendBtn" class="primary send" onclick="submitIdentity()">➤</button></div><div id="identityLog" class="talk identity-log"><div class="line dealer"><b>Dealer：</b>留下你的答案，也留下你看見的證據。</div></div></div><div id="result" class="card hidden"></div>
 </section>
-<div id="phaseOverlay" class="phase-overlay"><div class="phase-mark"><b>READING THE TRACES</b><span>五手已盡。面具仍在。</span></div></div>
+<div id="phaseOverlay" class="phase-overlay"><div class="phase-mark"><b>READING THE TRACES</b><span>Poker Phase Complete</span></div></div>
 </main>
 
 <script>
@@ -130,7 +130,7 @@ function directedDeck(profileKey){
 }
 
 /*
-DEALER EVENT & PERSONA LAYER v0.43
+DEALER EVENT & PERSONA LAYER v0.44
 Principle: the game engine owns facts; AI owns presentation only.
 No API key belongs in this browser file. In the live version, dealerRequest()
 should call our own server endpoint, which then calls the model.
@@ -203,9 +203,16 @@ function dealerFallback(kind,data={}){
     showdown:()=>`Showdown。Hunter ${data.heroCards||''}，${data.heroHand||''}；Opponent ${data.oppCards||''}，${data.oppHand||''}。`,
     pot_award:()=>`${data.winner==='hero'?'Hunter':'Opponent'} 贏得 ${data.amount}BB。`,
     tie:()=>`平手，平分 ${data.amount}BB。`,
-    phase_end:()=>`Poker Phase 結束。${data.verdict||''}`
+    phase_end:()=>`Poker Phase 結束。${data.verdict||''}`,
+    identity_analysis:()=> reasonedIdentityFallback(data)
   };
   return (m[kind]||(()=>''))();
+}
+
+function reasonedIdentityFallback(data={}){
+  const actual=data.actual||G?.id||'未知', correct=!!data.correct, reason=String(data.reason||'').trim();
+  const core=actual==='NPC'?'較值得看的，是跨手是否存在穩定、同方向的策略偏移，而不是某一句台詞。':actual==='GTO'?'較值得看的，是決策是否持續貼近數學與 Range Baseline，而沒有因少量玩家樣本大幅漂移。':'較值得看的，是前手 Evidence 是否在後手形成有方向的調整；只有表面語氣不能證明 Bayesian Update。';
+  return `${correct?'判斷正確。':'這次沒有命中。'}${core}${reason?' 你留下了理由，我會把它和對手實際反應分開看。':' 你沒有留下理由，因此只能評價結果與可觀察機制。'}`;
 }
 function dealerFact(text){
   if(!text)return;
@@ -322,14 +329,57 @@ document.addEventListener("DOMContentLoaded",()=>{
   updateFastForwardButton();
 });
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
-function oppLine(k){
-  const p={
-    NPC:{call:['「嗯……跟。」','「我不信你每次都有。」','「跟。」'],raise:['「那就再加一層。」','「我加。」','「Raise。」'],bet:['「這張我喜歡。」','「來啊，看你跟不跟。」','「這裡我下注。」'],check:['「……過。」','「你先。」','「Check。」']},
-    GTO:{call:['「這個價格可以。」','「繼續。」','「Call。」'],raise:['「Raise。」','「這裡加注。」','「提高尺度。」'],bet:['「這裡我會下注。」','「輪到你做決定。」','「Bet。」'],check:['「Check。」','「過。」','「保留範圍。」']},
-    GPT:{call:['「先跟。」','「我記下來了。」','「看看下一步。」'],raise:['「那我調高一點。」','「Raise。」','「換個尺度。」'],bet:['「這裡我下注。」','「換你決定。」','「Bet。」'],check:['「先看看。」','「Check。」','「你來。」']}
-  };
-  const a=p[G.id][k]||p[G.id].check;return a[Math.floor(Math.random()*a.length)];
+// Decision Engine v0.44 — shared GTO-inspired Baseline + identity mechanism.
+// Alpha parameters are centralized here so calibration never requires hidden post-hoc edits.
+const ENGINE_VERSION='decision-v0.44-alpha1';
+const DECISION_ALPHA={
+  temp:0.72,npcPrimary:.20,npcSecondary:.09,npcReaction:.035,
+  gptEvidenceStep:.16,gptContradiction:.22,gptExploitCap:.22,gptInfoCap:.035,
+  gptStage:[0,.18,.28,.48,.78,1.0]
+};
+function hash32(str){let h=2166136261>>>0;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function seededUnit(seed){let x=(seed||1)>>>0;x^=x<<13;x^=x>>>17;x^=x<<5;return (x>>>0)/4294967296}
+function chooseWeighted(obj,u){let acc=0;for(const [k,v] of Object.entries(obj)){acc+=v;if(u<=acc)return k}return Object.keys(obj).at(-1)}
+function softmax(scores,temp=DECISION_ALPHA.temp){const entries=Object.entries(scores),mx=Math.max(...entries.map(x=>x[1]));let z=0,o={};for(const [k,v] of entries){o[k]=Math.exp((v-mx)/temp);z+=o[k]}for(const k in o)o[k]/=z;return o}
+function normalizeDist(d){let z=Object.values(d).reduce((a,b)=>a+Math.max(0,b),0)||1,o={};for(const k in d)o[k]=Math.max(0,d[k])/z;return o}
+function holeClass(h){const a=v(h[0].r),b=v(h[1].r),hi=Math.max(a,b),lo=Math.min(a,b);return hi===lo?`${ranks[hi-2]}${ranks[lo-2]}`:`${ranks[hi-2]}${ranks[lo-2]}${h[0].s===h[1].s?'s':'o'}`}
+function preflopQuality(h){let a=v(h[0].r),b=v(h[1].r),hi=Math.max(a,b),lo=Math.min(a,b),pair=a===b,suited=h[0].s===h[1].s,gap=hi-lo;let q=(hi+lo-4)/24;q+=pair?.28:0;q+=suited?.055:0;q+=gap<=2?.045:0;q+=hi===14?.06:0;return Math.max(0,Math.min(1,q))}
+function handFeatures(h,b){const made=strength(h,b),score=b.length>=3?score7([...h,...b]):null;let flushDraw=false,straightDraw=false,nutPotential=0,blocker=0;
+  if(b.length>=3){const all=[...h,...b],sc={};all.forEach(c=>sc[c.s]=(sc[c.s]||0)+1);flushDraw=Object.values(sc).some(n=>n===4);const vals=[...new Set(all.map(c=>v(c.r)))].sort((a,b)=>a-b);if(vals.includes(14))vals.unshift(1);for(let x=1;x<=10;x++){const n=vals.filter(v=>v>=x&&v<=x+4).length;if(n>=4)straightDraw=true}nutPotential=(flushDraw||straightDraw)?.65:(score?.[0]>=4?.82:made*.45);blocker=h.some(c=>c.r==='A')?.65:h.some(c=>c.r==='K')?.42:.2}
+  const draw=(flushDraw?.58:0)+(straightDraw?.34:0);return {made,draw:Math.min(1,draw),sdv:Math.min(1,made*(b.length===5?1:.82)+preflopQuality(h)*.12),nutPotential,blocker};}
+function boardTexture(b){if(!b.length)return {connectivity:0,suitedness:0,pairedness:0,high:0,nut:0};const vals=b.map(c=>v(c.r)),uniq=[...new Set(vals)].sort((a,b)=>a-b),suit={};b.forEach(c=>suit[c.s]=(suit[c.s]||0)+1);let conn=0;for(let i=0;i<uniq.length;i++)for(let j=i+1;j<uniq.length;j++)if(Math.abs(uniq[i]-uniq[j])<=4)conn++;return {connectivity:Math.min(1,conn/4),suitedness:Math.max(...Object.values(suit))/b.length,pairedness:1-uniq.length/b.length,high:vals.filter(x=>x>=11).length/b.length,nut:Math.max(...vals)/14};}
+function estimatedHunterRange(){
+  // Alpha weighted-range summary: starts broad and is reweighted by current-hand Hunter actions only.
+  let agg={strength:.50,aggression:.50,polar:.25};const cur=(G.history||[]).filter(e=>e.hand===G.hand&&e.role==='hunter');
+  for(const e of cur){const t=e.text.toLowerCase();if(/raise|bet|all-in/.test(t)){agg.strength+=.045;agg.aggression+=.07;if(/all-in/.test(t))agg.polar+=.12}else if(/call/.test(t))agg.strength+=.015;else if(/check/.test(t))agg.strength-=.02}
+  for(const k in agg)agg[k]=Math.max(.05,Math.min(.95,agg[k]));return agg;
 }
+function matchContext(){return {hand:G.hand,remaining:5-G.hand,lead:(G.opp-G.hero)/200,elimRisk:Math.max(0,1-G.opp/35)}}
+function restrictedOpponentContext(){return {engine:ENGINE_VERSION,hand:G.hand,street:G.street,board:(G.board||[]).map(cardCode),ownHole:(G.oh||[]).map(cardCode),pot:G.pot,ownStack:G.opp,heroStack:G.hero,position:G.heroBTN?'BB':'BTN/SB',currentBet:G.currentBet,toCall:amountToCall('opp'),legal:legalActions('opp'),currentHandHistory:(G.history||[]).filter(e=>e.hand===G.hand&&['hunter','opp'].includes(e.role)).map(e=>({street:e.street,role:e.role,text:e.text})),match:matchContext()};}
+function baselineDistribution(ctx){const legal=ctx.legal, f=handFeatures(G.oh,G.board), bt=boardTexture(G.board), hr=estimatedHunterRange(),tc=ctx.toCall,potOdds=tc>0?tc/(ctx.pot+tc):0,mc=ctx.match,s={};
+  const equity=Math.max(.02,Math.min(.98,.48+(.62*(f.made-.5))+.12*f.draw+.07*f.nutPotential-.16*(hr.strength-.5)));
+  if(legal.includes('fold'))s.fold=(potOdds-equity)*4.2 + .18*mc.elimRisk + .12*Math.max(0,mc.lead);
+  if(legal.includes('call'))s.call=(equity-potOdds)*3.5 + .30*f.sdv + .18*f.draw - .08*mc.elimRisk;
+  if(legal.includes('check'))s.check=.30 + .42*f.sdv - .18*f.nutPotential + .08*bt.pairedness;
+  const aggr=(equity-.5)*2.3+.42*f.draw+.25*f.blocker+.18*f.nutPotential+.10*bt.connectivity+.10*Math.max(0,-mc.lead);
+  if(legal.includes('bet'))s.bet=aggr;
+  if(legal.includes('raise'))s.raise=aggr-.12+(.25*(equity>.72));
+  return {dist:softmax(s),trace:{features:f,board:bt,hunterRange:hr,potOdds,equity,match:mc,scores:s}};
+}
+const NPC_BIASES=['showdown_sticky','draw_sticky','initiative','raise_pressure','cautious','value_heavy','bluff_heavy','small_size','large_size','turn_honest','river_bluff'];
+function createHiddenSnapshot(id){const seed=(Math.random()*0xffffffff)>>>0,primary=NPC_BIASES[seed%NPC_BIASES.length],secondary=(seed%3===0)?NPC_BIASES[(seed>>>5)%NPC_BIASES.length]:null;return {createdBeforeHand1:true,seed,core:id,mix:['NPC-like','GTO-like','GPT-like'][seed%3],bigFive:{o:seed%101,c:(seed>>>3)%101,e:(seed>>>6)%101,a:(seed>>>9)%101,n:(seed>>>12)%101},performance:{talk:.25+((seed%40)/100),probe:.05+((seed%10)/100)},npc:{primary,secondary},gpt:{model:{},reliability:.5,manipulation:.05,evidence:[]}}}
+function npcModify(d,trace){let o={...d},bias=G.hiddenSnapshot.npc.primary,room=1-Math.max(...Object.values(d));const k=DECISION_ALPHA.npcPrimary*(.35+room);
+  const shift=(from,to,a)=>{if(o[from]!=null&&o[to]!=null){const x=Math.min(o[from],a);o[from]-=x;o[to]+=x}};
+  if(bias==='showdown_sticky')shift('fold','call',k);if(bias==='draw_sticky'&&trace.features.draw>.25)shift('fold','call',k*.8);if(bias==='cautious'){shift('raise','call',k);shift('bet','check',k)}if(bias==='initiative')shift('check','bet',k);if(bias==='raise_pressure')shift('call','raise',k*.7);if(bias==='value_heavy'&&trace.features.made<.55){shift('bet','check',k*.7);shift('raise','call',k*.7)}if(bias==='bluff_heavy'&&trace.features.blocker>.35){shift('check','bet',k*.55);shift('fold','raise',k*.35)}if(bias==='turn_honest'&&G.street===2){shift('bet','check',k);shift('raise','call',k)}if(bias==='river_bluff'&&G.street===3&&trace.features.sdv<.35)shift('check','bet',k*.6);return normalizeDist(o)}
+function gptHypothesisKey(){return `${['pre','flop','turn','river'][G.street]}:${amountToCall('opp')>0?'facing-pressure':'initiative'}`}
+function updateGptEvidenceAfterHunter(action,target=null){if(!G||G.id!=='GPT'||G.hand<1)return;const g=G.hiddenSnapshot.gpt,key=gptHypothesisKey(),m=g.model[key]||{confidence:0,aggression:0,samples:0,scope:key};let dir=['bet','raise'].includes(action)?1:action==='fold'?-1:0;if(target&&G.pot>0&&target/G.pot>1)dir+=.35;m.samples++;m.aggression=Math.max(-1,Math.min(1,m.aggression+dir*.22));m.confidence=Math.min(.86,m.confidence+DECISION_ALPHA.gptEvidenceStep*(dir!==0?1:.45));g.model[key]=m;g.evidence.push({hand:G.hand,street:G.street,action,target,scope:key});g.evidence=g.evidence.slice(-24)}
+function gptShowdownLearn(){if(!G||G.id!=='GPT')return;const g=G.hiddenSnapshot.gpt,cur=(G.history||[]).filter(e=>e.hand===G.hand&&e.role==='hunter').map(e=>e.text).join(' '),hs=score7([...G.hole,...G.board]),strong=hs[0]>=2||hs[0]===1&&hs[1]>=11,key=`river:facing-pressure`,m=g.model[key]||{confidence:0,aggression:0,samples:0,scope:key};if(/Bet|Raise|All-in/i.test(cur)){m.samples++;m.confidence=Math.min(.92,m.confidence+.18);m.aggression=Math.max(-1,Math.min(1,m.aggression+(strong?-.18:.28)));g.model[key]=m}if(m.samples>=2&&Math.abs(m.aggression)>.45)g.manipulation=Math.min(.55,g.manipulation+.06)}
+function gptModify(d,trace){let o={...d},g=G.hiddenSnapshot.gpt,m=g.model[gptHypothesisKey()];if(!m||m.confidence<.18)return o;const stage=DECISION_ALPHA.gptStage[G.hand]||0,relevance=1,manipBrake=1-g.manipulation*.45,amt=Math.min(DECISION_ALPHA.gptExploitCap,m.confidence*relevance*stage*.28)*manipBrake;const shift=(from,to,a)=>{if(o[from]!=null&&o[to]!=null){const x=Math.min(o[from],a);o[from]-=x;o[to]+=x}};if(m.aggression>.18)shift('fold','call',amt);if(m.aggression<-.18){shift('check','bet',amt);shift('call','raise',amt*.45)}// bounded information seeking early only
+  if(G.hand<=2&&m.confidence<.45&&trace.features.sdv>.25)shift('fold','call',Math.min(DECISION_ALPHA.gptInfoCap,(3-G.hand)*.012));return normalizeDist(o)}
+function identityDistribution(base,trace){if(G.id==='NPC')return npcModify(base,trace);if(G.id==='GPT')return gptModify(base,trace);return {...base}}
+function sizingTarget(action,trace){const max=maxRaiseTo('opp'),min=minRaiseTo('opp'),pot=Math.max(2,G.pot),spr=G.opp/pot;let fractions=G.street===0?[2.5,3,4]:[.33,.67,1,1.5],f=fractions[Math.min(fractions.length-1,Math.floor((trace.features.nutPotential+trace.features.draw*.35)*fractions.length))],t;if(G.street===0)t=Math.round(Math.max(min,G.currentBet*f));else t=Math.round(Math.max(min,G.currentBet+pot*f));if(spr<.8||trace.features.made>.9)t=max;return Math.max(min,Math.min(max,t))}
+function decideOpponent(){const ctx=restrictedOpponentContext(),base=baselineDistribution(ctx),final=identityDistribution(base.dist,base.trace),decisionIndex=(G.decisionIndex=(G.decisionIndex||0)+1),seed=hash32(`${ENGINE_VERSION}|${G.matchSeed}|${G.hand}|${G.street}|${decisionIndex}|${JSON.stringify(ctx)}`),u=seededUnit(seed),action=chooseWeighted(final,u),target=['bet','raise'].includes(action)?sizingTarget(action,base.trace):null,rec={engine:ENGINE_VERSION,hand:G.hand,street:G.street,seed,contextHash:hash32(JSON.stringify(ctx)),baseline:base.dist,identity:G.id,final,rng:u,action,target,trace:base.trace};G.decisionTrace.push(rec);return rec}
+function opponentPerformance(action,target){const snap=G.hiddenSnapshot,tones={low:['「嗯。」','「好。」','「來。」'],mid:['「繼續。」','「這裡。」','「輪到你。」'],high:['「有意思。」','「再看看。」','「我接。」']},pool=tones[snap.performance.talk>.5?'high':snap.performance.talk>.35?'mid':'low'];let line=pool[(G.decisionIndex+snap.seed)%pool.length];if(G.id==='GPT'&&G.hand<=3&&Math.random()<snap.performance.probe)line=['「這個尺度，你很常用嗎？」','「妳是在留痕跡給我看？」','「又是這個節奏。」'][G.decisionIndex%3];return line}
 
 function assertState(tag=''){
   const total=G.hero+G.opp+G.pot;
@@ -425,6 +475,7 @@ function dealerAction(who,type,target=null){
   }
   G.actionsThisStreet++;
   assertState(`${who}:${type}`);
+  if(who==='hero')updateGptEvidenceAfterHunter(type,target);
 
   let matched=G.heroPut===G.oppPut;
   const bothChecked=G.checksInRow>=2;
@@ -468,7 +519,7 @@ function runDealerRegressionTests(){
   function baseState(hero=100,opp=100){
     G={hero,opp,pot:Math.max(0,200-hero-opp),heroPut:0,oppPut:0,currentBet:0,lastFullRaise:2,
        actionsThisStreet:0,checksInRow:0,ended:false,awaitingNext:false,transitioning:false,
-       talk:[],board:[],d:[],street:0,actor:'hero'};
+       talk:[],history:[],board:[],d:[],street:0,actor:'hero',hand:1,id:'GTO',hiddenSnapshot:createHiddenSnapshot('GTO'),matchSeed:1,decisionTrace:[],decisionIndex:0};
   }
 
   test('chip conservation',()=>{
@@ -535,6 +586,23 @@ function runDealerRegressionTests(){
     if(acts.includes('raise'))throw new Error('raise incorrectly legal versus all-in opponent');
   });
 
+  test('GTO identity layer preserves baseline distribution',()=>{
+    baseState();G.id='GTO';const b={fold:.6,call:.35,raise:.05},out=identityDistribution(b,{features:{}});
+    if(JSON.stringify(b)!==JSON.stringify(out))throw new Error('GTO modified baseline');
+  });
+
+  test('GPT no evidence does not invent exploit',()=>{
+    baseState();G.id='GPT';G.hiddenSnapshot=createHiddenSnapshot('GPT');const b={fold:.6,call:.35,raise:.05},out=gptModify(b,{features:{sdv:.4}});
+    if(Math.abs(out.call-b.call)>.04)throw new Error('GPT over-adjusted without evidence');
+  });
+
+  test('restricted opponent context contains no hero hole cards',()=>{
+    baseState();G.oh=[{r:'A',s:'♠'},{r:'K',s:'♠'}];G.hole=[{r:'2',s:'♣'},{r:'3',s:'♣'}];G.heroBTN=true;
+    const c=restrictedOpponentContext();if(JSON.stringify(c).includes('2♣')||JSON.stringify(c).includes('3♣'))throw new Error('hero hidden cards leaked');
+  });
+
+  test('seeded RNG is reproducible',()=>{eq(seededUnit(123456),seededUnit(123456),'seeded rng')});
+
   G=saved;
   const failed=results.filter(x=>!x.ok);
   console.table(results);
@@ -588,7 +656,8 @@ async function runoutAndShowdown(){
 }
 function newGame(){
   const dealProfile=chooseDealProfile();
-  G={id:['NPC','GTO','GPT'][Math.floor(Math.random()*3)],p:personas[Math.floor(Math.random()*3)],dealProfile,
+  const id=['NPC','GTO','GPT'][Math.floor(Math.random()*3)],matchSeed=(Math.random()*0xffffffff)>>>0;
+  G={id,p:personas[Math.floor(Math.random()*3)],dealProfile,matchSeed,hiddenSnapshot:createHiddenSnapshot(id),decisionTrace:[],rangeTrace:[],decisionIndex:0,
      hero:100,opp:100,pot:0,hand:0,history:[],talk:[],dealerMemory:[],ended:false,awaitingNext:false,transitioning:false,matchEnded:false,presentationEpoch:0};
   selectedAction=null;textQueue=[];streamBusy=false;skipStream=false;activeStream=null;setFastForward(false);start.classList.add('hidden');game.classList.remove('hidden');
   dealerFact('牌桌開啟。五手，雙方起始籌碼各 100BB。');
@@ -630,7 +699,11 @@ function render(){
   size.value=Math.max(+size.min,Math.min(+size.value,+size.max));
   renderQuickSizes();updateSizeLabel();
 }
-function setBetSize(x,key){selectedQuickSize=key;size.value=Math.max(+size.min,Math.min(+size.max,Math.round(x)));updateSizeLabel();renderQuickSizes()}
+function setBetSize(x,key){
+  const same=selectedAction==='bet'&&selectedQuickSize===key;
+  selectedQuickSize=key;size.value=Math.max(+size.min,Math.min(+size.max,Math.round(x)));updateSizeLabel();renderQuickSizes();
+  if(same)executeAction('bet','');
+}
 function manualSizeChange(){selectedQuickSize=null;updateSizeLabel();renderQuickSizes()}
 function renderQuickSizes(){
   if(!G||!quickSizes)return;
@@ -685,16 +758,22 @@ function sendSelected(){
 function escapeHtml(s){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function showActionReceipt(text){if(!actionReceipt)return;actionReceipt.textContent='✓ '+text;actionReceipt.classList.remove('fade');clearTimeout(showActionReceipt.t);showActionReceipt.t=setTimeout(()=>actionReceipt.classList.add('fade'),900)}
 function executeAction(a,msg){if(msg){say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg)}clearSelection();heroAction(a)}
+
+function dealerActionBeat(action,amount=0){
+  if(!G||G.ended)return;
+  const recent=(G.history||[]).filter(e=>e.role==='hunter').slice(-8).map(e=>e.text).join(' ');
+  dealerSay('action_reaction',{message:`Hunter ${action}${amount?' '+amount+'BB':''}; recent=${recent}`});
+}
 function heroAction(a){
   if(G.actor!=='hero')return;
   try{
     if(a==='fold'){showActionReceipt('Fold');say('Hunter Fold。');dealerAction('hero','fold');return}
-    if(a==='check'){showActionReceipt('Check');say('Hunter Check。');dealerAction('hero','check')}
-    if(a==='call'){let tc=amountToCall('hero'),amt=Math.min(tc,G.hero),ai=amt===G.hero;showActionReceipt(`${ai?'All-in Call':'Call'} ${amt}BB`);say(`Hunter ${ai?'All-in Call':'Call'} ${amt}BB。`);dealerAction('hero','call')}
+    if(a==='check'){showActionReceipt('Check');say('Hunter Check。');dealerAction('hero','check');dealerActionBeat('Check')}
+    if(a==='call'){let tc=amountToCall('hero'),amt=Math.min(tc,G.hero),ai=amt===G.hero;showActionReceipt(`${ai?'All-in Call':'Call'} ${amt}BB`);say(`Hunter ${ai?'All-in Call':'Call'} ${amt}BB。`);dealerAction('hero','call');dealerActionBeat(ai?'All-in Call':'Call',amt)}
     if(a==='bet'){
       let type=G.currentBet===0?'bet':'raise',target=+size.value;
       const allin=target>=maxRaiseTo('hero');showActionReceipt(allin?`All-in ${G.hero}BB`:`${type==='raise'?'Raise':'Bet'} ${target}BB`);say(allin?`Hunter All-in ${G.hero}BB。`:`Hunter ${type==='raise'?'Raise':'Bet'} ${target}BB。`);
-      dealerAction('hero',type,target);
+      dealerAction('hero',type,target);dealerActionBeat(allin?'All-in':type==='raise'?'Raise':'Bet',target);
     }
     render();
     if(!G.awaitingNext&&!G.ended&&G.actor==='opp')setTimeout(oppTurn,420);
@@ -703,36 +782,14 @@ function heroAction(a){
 function oppRespond(){return oppTurn()}
 function oppTurn(){
   if(!G||G.ended||G.awaitingNext||G.actor!=='opp')return;
-  const tc=amountToCall('opp'),st=strength(G.oh,G.board),legal=legalActions('opp');
-  let action='check',target=null;
-  // Prototype strategy only; Dealer Engine controls legality and accounting.
-  if(tc>0){
-    const potOdds=tc/(G.pot+tc);
-    const foldChance=Math.max(.04,Math.min(.72,potOdds*.9-st*.38+(G.id==='NPC'?.04:G.id==='GPT'?.01:0)));
-    if(legal.includes('fold')&&Math.random()<foldChance)action='fold';
-    else if(legal.includes('raise')&&st>.72&&Math.random()<.18){
-      action='raise';target=Math.min(maxRaiseTo('opp'),Math.max(minRaiseTo('opp'),Math.round(G.currentBet+Math.max(G.lastFullRaise,G.pot*.45))));
-    }else action='call';
-  }else{
-    const betChance=G.id==='NPC'?.28+st*.22:G.id==='GTO'?.25+st*.20:.24+st*.18;
-    if(legal.includes('bet')&&Math.random()<betChance){
-      action='bet';target=Math.min(maxRaiseTo('opp'),Math.max(minRaiseTo('opp'),Math.round(Math.max(2,G.pot*(G.id==='GTO'?.55:.65)))));
-    }else action='check';
-  }
-  try{
-    // Poker action is always explicit and rendered before any transition it triggers.
-    if(action==='fold')appendImmediate('「Fold。」 <b>Fold</b>','opp');
-    else if(action==='check')appendImmediate(oppLine('check')+' <b>Check</b>','opp');
-    else if(action==='call'){const amt=Math.min(tc,G.opp),ai=amt===G.opp;appendImmediate(oppLine('call')+` <b>${ai?'All-in Call':'Call'} ${amt}BB</b>`,'opp');}
-    else {const ai=target>=maxRaiseTo('opp');appendImmediate(oppLine(action==='raise'?'raise':'bet')+` <b>${ai?'All-in':action==='raise'?'Raise':'Bet'} ${ai?G.opp:target}BB</b>`,'opp');}
-    dealerAction('opp',action,target);
-    render();
-  }catch(e){
-    console.error(e);dealerSay('system_block');
-    // Safe fallback: check when possible, otherwise call/fold.
-    const fallback=canCheck('opp')?'check':(legalActions('opp').includes('call')?'call':'fold');
-    dealerAction('opp',fallback);render();
-  }
+  const legal=legalActions('opp');let rec;
+  try{rec=decideOpponent();const {action,target}=rec,tc=amountToCall('opp'),perf=opponentPerformance(action,target);
+    if(action==='fold')appendImmediate(`${perf} <b>Fold</b>`,'opp');
+    else if(action==='check')appendImmediate(`${perf} <b>Check</b>`,'opp');
+    else if(action==='call'){const amt=Math.min(tc,G.opp),ai=amt===G.opp;appendImmediate(`${perf} <b>${ai?'All-in Call':'Call'} ${amt}BB</b>`,'opp');}
+    else {const ai=target>=maxRaiseTo('opp');appendImmediate(`${perf} <b>${ai?'All-in':action==='raise'?'Raise':'Bet'} ${ai?G.opp:target}BB</b>`,'opp');}
+    dealerAction('opp',action,target);render();
+  }catch(e){console.error(e);dealerSay('system_block');const fallback=canCheck('opp')?'check':(legal.includes('call')?'call':'fold');dealerAction('opp',fallback);render();}
 }
 function showdown(){
   while(G.board.length<5)G.board.push(G.d.pop());
@@ -745,7 +802,7 @@ function showdown(){
   if(r>0){G.hero+=G.pot;winner='hero';dealerFact(`Hunter 贏得 ${won}BB。`)}
   else if(r<0){G.opp+=G.pot;winner='opp';dealerFact(`Opponent 贏得 ${won}BB。`)}
   else{G.hero+=G.pot/2;G.opp+=G.pot/2;dealerFact(`平手，平分 ${won}BB。`)}
-  G.pot=0;assertState('showdown');G.matchEnded=(G.hero<=0||G.opp<=0||G.hand>=5);finishHand(winner,true,hname(hs),hname(os));
+  G.pot=0;assertState('showdown');gptShowdownLearn();G.matchEnded=(G.hero<=0||G.opp<=0||G.hand>=5);finishHand(winner,true,hname(hs),hname(os));
   setTimeout(()=>dealerSay('showdown_reaction',{winner,amount:won,heroHand:hname(hs),oppHand:hname(os),matchEnded:G.matchEnded}),120);
 }
 function finishHand(winner='unknown',sd=false,hn='',on=''){
@@ -797,8 +854,11 @@ async function revealIdentity(x,reason=''){
   const reasonHtml=reason?`<p>你的理由：${escapeHtml(reason)}</p>`:'';
   result.innerHTML=`<div class="big">${ok?'✓ HUNT SUCCESS':'✕ MASK HELD'}</div><p>你的答案：<b>${x}</b></p>${reasonHtml}<p>REVEAL：<b>${G.id}</b></p><p class="note">${why}</p><div id="identityAnalysis" class="talk" style="height:auto;max-height:220px;margin:10px 0"><div class="line dealer"><b>Dealer：</b><span class="typing-dots"><i></i><i></i><i></i></span></div></div><button class="primary" onclick="location.reload()">再獵一次</button>`;
   result.scrollIntoView({behavior:'smooth'});
-  const history=(G.history||[]).slice(-70).map(e=>`H${e.hand} ${e.street} ${e.role}: ${e.text}`).join('\n').slice(-7000);
-  const text=await dealerRequest('identity_analysis',{guess:x,actual:G.id,correct:ok,reason,history});
+  const actionHistory=(G.history||[]).slice(-70).map(e=>`H${e.hand} ${e.street} ${e.role}: ${e.text}`).join('\n');
+  const mech=(G.decisionTrace||[]).slice(-30).map(d=>`H${d.hand} ${['PREFLOP','FLOP','TURN','RIVER'][d.street]} Opponent ${d.action}${d.target?' '+d.target+'BB':''}; baseline=${JSON.stringify(d.baseline)}; final=${JSON.stringify(d.final)}`).join('\n');
+  const history=(`OBSERVED ACTIONS\n${actionHistory}\nOPPONENT MECHANISM TRACE\n${mech}`).slice(-7000);
+  let text=await dealerRequest('identity_analysis',{guess:x,actual:G.id,correct:ok,reason,history});
+  if(!text||text.trim().length<12)text=reasonedIdentityFallback({guess:x,actual:G.id,correct:ok,reason});
   const box=document.getElementById('identityAnalysis');
   if(box)box.innerHTML=`<div class="line dealer"><b>Dealer：</b>${escapeHtml(text)}</div>`;
 }
