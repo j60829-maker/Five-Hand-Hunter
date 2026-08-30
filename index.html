@@ -9,7 +9,7 @@
 *{box-sizing:border-box}html{background:#050607;min-height:100%;}body{margin:0;background:radial-gradient(circle at 50% 8%,#182126 0,#090d0f 48%,#050607 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Segoe UI",sans-serif;min-height:100dvh}
 main{max-width:760px;margin:auto;padding:12px 10px 48px}.brand{letter-spacing:.16em;font-size:11px;color:var(--accent)}h1{font-family:Georgia,serif;font-size:28px;margin:6px 0 4px}.tag,.note{color:var(--muted);font-size:12px}.card{background:#10161af2;border:1px solid var(--line);border-radius:15px;padding:12px;margin:8px 0}.row{display:flex;gap:8px;align-items:center;justify-content:space-between}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.stat{padding:8px 4px;border:1px solid var(--line);border-radius:10px;text-align:center}.stat b{display:block;font-size:18px}.stat small{font-size:10px;color:var(--muted)}
 .cards{display:flex;gap:6px;flex-wrap:wrap}.pc{width:40px;height:55px;background:#f4f1e8;color:#111;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800}.red{color:#9b2424}
-.talk{min-height:104px;padding:10px;background:#080c0e;border:1px solid #1c262b;border-radius:12px}.line{margin:0 0 8px;line-height:1.45}.dealer{color:#e6d6b5}.opp{color:#d5e2e8}.hunter{color:#a8d3e6}.sys{color:#75878f;font-size:12px}
+.talk{min-height:104px;padding:10px;background:#080c0e;border:1px solid #1c262b;border-radius:12px}.line{margin:0 0 8px;line-height:1.45}.dealer{color:#e6d6b5}.opp{color:#d5e2e8}.hunter{color:#a8d3e6}.narrator{color:#849096;font-size:12px;font-style:italic;letter-spacing:.015em}.sys{color:#75878f;font-size:12px}
 button{border:1px solid #38464d;background:#151d21;color:var(--text);padding:11px 10px;border-radius:11px;font-weight:800;font-size:14px}button.primary{background:#d6c19a;color:#111;border-color:#d6c19a}button.danger{background:#5a2929}button:disabled{opacity:.3}.hidden{display:none!important}.identity{display:grid;grid-template-columns:1fr;gap:7px}.identity button{text-align:left;padding-left:18px;min-height:54px}
 .identity button.selected{background:var(--selected);border-color:var(--selectedLine);box-shadow:0 0 0 1px var(--selectedLine) inset}
 .chat-shell{position:relative}
@@ -42,7 +42,7 @@ main{max-width:760px;padding-top:8px}
 </head>
 <body>
 <main>
-<div class="brand">FIVE-HAND HUNTER · v0.44</div>
+<div class="brand">FIVE-HAND HUNTER · v0.46</div>
 <h1>誰是獵人，誰是獵物？</h1>
 <p class="tag">五手 Poker。一次身份判斷。</p>
 
@@ -71,6 +71,7 @@ main{max-width:760px;padding-top:8px}
 <div class="transition-title">POKER PHASE COMPLETE</div>
 <p id="transitionResult" class="transition-copy"></p>
 <p class="transition-copy">對手起身離桌。牌局留下的，只剩五手之中的痕跡。</p>
+<p id="transitionNarration" class="transition-copy narrator"></p>
 <button class="primary" onclick="enterIdentity()">進入身份判斷</button>
 </div>
 <div id="guess" class="card hidden">
@@ -130,17 +131,20 @@ function directedDeck(profileKey){
 }
 
 /*
-DEALER EVENT & PERSONA LAYER v0.44
+THREE-WAY AI PERFORMANCE LAYER v0.46
 Principle: the game engine owns facts; AI owns presentation only.
-No API key belongs in this browser file. In the live version, dealerRequest()
-should call our own server endpoint, which then calls the model.
+No API key belongs in this browser file. Dealer, Opponent and Narrator use
+separate server endpoints and receive different safe packets.
 */
 const DEALER_AI={
   enabled:true,
   endpoint:'/api/dealer',
-  timeoutMs:5000,
+  timeoutMs:9000,
   memoryTurns:10
 };
+const OPPONENT_AI={enabled:true,endpoint:'/api/opponent',timeoutMs:9000,memoryTurns:8};
+const NARRATOR_AI={enabled:true,endpoint:'/api/narrator',timeoutMs:9000};
+let presentationMessageSeq=0;
 
 function dealerRemember(role,text){
   if(!G)return;
@@ -216,7 +220,6 @@ function reasonedIdentityFallback(data={}){
 }
 function dealerFact(text){
   if(!text)return;
-  dealerRemember('dealer',text);
   appendImmediate(text,'dealer');
 }
 function handStartFact(){
@@ -246,11 +249,94 @@ async function dealerRequest(kind,data={}){
     return fallback;
   }
 }
+async function performanceRequest(config,payload,fallback){
+  if(!config.enabled)return fallback;
+  try{
+    const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),config.timeoutMs);
+    const res=await fetch(config.endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:ctl.signal});
+    clearTimeout(timer);if(!res.ok)throw new Error(`${config.endpoint} ${res.status}`);
+    const out=await res.json();if(!out||typeof out.text!=='string'||!out.text.trim())throw new Error('invalid performance response');
+    return out.text.trim();
+  }catch(e){console.warn('Performance AI fallback',config.endpoint,e);return fallback}
+}
+function opponentConversation(){
+  return (G?.history||[]).filter(x=>x.role==='hunter'||x.role==='opp').slice(-OPPONENT_AI.memoryTurns).map(x=>({role:x.role==='hunter'?'hunter':'opponent',text:x.text}));
+}
+function buildOpponentPacket(eventType,{action='none',target=0,message=''}={}){
+  const b=G.hiddenSnapshot.bigFive,t=G.hiddenSnapshot.performance.talk;
+  return {schema_version:'opponent-performance-v1',event_type:eventType,locked_action:action,locked_size:Number(target||0),public:{hand:G.hand,street:['PREFLOP','FLOP','TURN','RIVER'][G.street],board:(G.board||[]).map(cardCode),pot:G.pot,hunter_message:message},performance:{talk_level:t>.5?'high':t>.35?'mid':'low',openness:b.o,conscientiousness:b.c,extraversion:b.e,agreeableness:b.a,neuroticism:b.n},conversation:opponentConversation()};
+}
+function narratorFallback(cue){return {table_waits:'桌燈落在深色絨布上，房間其餘地方安靜地退入陰影。',light_shifts:'桌面的光微微偏了一寸，牌室裡只剩空調低沉的聲音。',room_tightens:'遠處的玻璃映著桌燈，四周的聲音彷彿被厚重地毯吸收。',chair_empty:'對面的椅子空了，椅背仍停在離桌面不遠的位置。',cards_rest:'牌堆安靜地留在桌面中央，邊緣接住一線冷光。',door_closes:'門在遠處闔上，牌室重新只剩燈光與靜止的桌面。'}[cue]||''}
+async function narratorRequest(cue){return performanceRequest(NARRATOR_AI,{schema_version:'narrator-camera-v1',visual_cue:cue},narratorFallback(cue))}
+function presentationToken(){
+  return {game:G?.matchSeed,epoch:G?.presentationEpoch||0,hand:G?.hand||0,street:G?.street||0};
+}
+function presentationIsCurrent(token){
+  return !!G&&G.matchSeed===token.game&&G.presentationEpoch===token.epoch&&G.hand===token.hand;
+}
+function reservePresentationLine(w='dealer',suffix=''){
+  const id=`presentation-${++presentationMessageSeq}`,{cls,lab}=roleMeta(w);
+  G.talk.push(`<div class="line ${cls} pending" data-presentation-id="${id}"><b>${lab}</b><span class="typing-dots"><i></i><i></i><i></i></span>${suffix}</div>`);
+  renderTalkLog();
+  return {id,w};
+}
+function presentationSlotIndex(slot){return G?.talk?.findIndex(x=>x.includes(`data-presentation-id="${slot.id}"`))??-1}
+function removePresentationSlot(slot){
+  const i=presentationSlotIndex(slot);if(i>=0){G.talk.splice(i,1);renderTalkLog()}
+}
+function dropPendingPresentationLines(){
+  if(!Array.isArray(G?.talk))return;
+  G.talk=G.talk.filter(x=>!x.includes('data-presentation-id='));renderTalkLog();
+}
+async function fillPresentationSlot(slot,text,token,suffix=''){
+  let i=presentationSlotIndex(slot);if(i<0||!presentationIsCurrent(token))return removePresentationSlot(slot);
+  const {cls,lab}=roleMeta(slot.w),plain=String(text||'').trim();if(!plain)return removePresentationSlot(slot);
+  const full=`<div class="line ${cls}" data-presentation-id="${slot.id}"><b>${lab}</b>${escapeHtml(plain)}${suffix}</div>`;
+  if(fastForwardMode){G.talk[i]=full;renderTalkLog();return}
+  let shown='';
+  for(let n=0;n<plain.length;n++){
+    if(!presentationIsCurrent(token))return removePresentationSlot(slot);
+    i=presentationSlotIndex(slot);if(i<0)return;
+    if(fastForwardMode){G.talk[i]=full;renderTalkLog();return}
+    shown+=plain[n];
+    G.talk[i]=`<div class="line ${cls} streaming" data-presentation-id="${slot.id}"><b>${lab}</b>${escapeHtml(shown)}${suffix}</div>`;
+    renderTalkLog();
+    const ch=plain[n];await wait(/[。！？!?]/.test(ch)?120:/[，、；：…]/.test(ch)?70:24);
+  }
+  i=presentationSlotIndex(slot);if(i>=0&&presentationIsCurrent(token)){
+    G.talk[i]=full;renderTalkLog();
+    if(slot.w==='dealer')dealerRemember('dealer',plain);
+    if(slot.w==='opp'&&Array.isArray(G.history))G.history.push({hand:G.hand,street:['PREFLOP','FLOP','TURN','RIVER'][G.street]||'PREFLOP',role:'opp',text:plain.slice(0,240)});
+  }
+}
 async function dealerSay(kind,data={}){
-  const boundEpoch=(kind==='showdown_reaction'||kind==='hand_reaction')?(G?.presentationEpoch||0):null;
+  if(!G)return;
+  const token=presentationToken(),slot=reservePresentationLine('dealer');
   const text=await dealerRequest(kind,data);
-  if(boundEpoch!==null && (!G||G.presentationEpoch!==boundEpoch))return;
-  if(text){dealerRemember('dealer',text);say(text,'dealer');}
+  if(!presentationIsCurrent(token))return removePresentationSlot(slot);
+  await fillPresentationSlot(slot,text,token);
+}
+async function opponentSay(kind,data={},actionHtml=''){
+  if(!G)return;const token=presentationToken(),slot=reservePresentationLine('opp',actionHtml);
+  const fallback=kind==='action_performance'?opponentPerformance(data.action,data.target):'「我聽見了。」';
+  const text=await performanceRequest(OPPONENT_AI,buildOpponentPacket(kind,data),fallback);
+  if(!presentationIsCurrent(token))return removePresentationSlot(slot);
+  await fillPresentationSlot(slot,text,token,actionHtml);
+}
+async function narratorSay(cue,{target='log'}={}){
+  if(!G)return;const token=presentationToken();
+  if(target==='transition'){
+    const text=await narratorRequest(cue);if(!presentationIsCurrent(token))return;
+    if(transitionNarration)transitionNarration.textContent=text;return;
+  }
+  const slot=reservePresentationLine('narrator'),text=await narratorRequest(cue);
+  if(!presentationIsCurrent(token))return removePresentationSlot(slot);
+  await fillPresentationSlot(slot,text,token);
+}
+function narrativeEvent(cue,{chance=.45,force=false}={}){
+  if(!G)return;const n=G.narrative||(G.narrative={events:0,total:0,last:-99,perHand:{}}),event=++n.events,hand=G.hand||0,count=n.perHand[hand]||0;
+  if(!force&&(n.total>=14||count>=3||event-n.last<3||Math.random()>chance))return false;
+  n.total++;n.last=event;n.perHand[hand]=count+1;narratorSay(cue);return true;
 }
 
 function deck(){let a=[];for(const r of ranks)for(const s of suits)a.push({r,s});for(let i=a.length-1;i;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
@@ -263,7 +349,7 @@ for(let a=0;a<n-4;a++)for(let b=a+1;b<n-3;b++)for(let c=b+1;c<n-2;c++)for(let d=
 function hname(s){return['High Card','One Pair','Two Pair','Three of a Kind','Straight','Flush','Full House','Four of a Kind','Straight Flush'][s[0]]}
 function strength(h,b=[]){if(b.length<3){let a=v(h[0].r),c=v(h[1].r);return Math.min(1,(a+c)/28+(a===c?.22:0)+(h[0].s===h[1].s?.06:0))}let s=score7([...h,...b]);return Math.min(1,.15+s[0]*.105+(s[1]||0)/100)}
 let textQueue=[],streamBusy=false,skipStream=false,activeStream=null,fastForwardMode=false;
-function roleMeta(w){return {cls:w==='dealer'?'dealer':w==='opp'?'opp':w==='hunter'?'hunter':'sys',lab:w==='dealer'?'Dealer：':w==='opp'?'Opponent：':w==='hunter'?'Hunter：':''}}
+function roleMeta(w){return {cls:w==='dealer'?'dealer':w==='opp'?'opp':w==='hunter'?'hunter':w==='narrator'?'narrator':'sys',lab:w==='dealer'?'Dealer：':w==='opp'?'Opponent：':w==='hunter'?'Hunter：':''}}
 function stripTags(html){const d=document.createElement('div');d.innerHTML=html;return d.textContent||d.innerText||''}
 function say(t,w='sys'){
   // Hard system/Hunter confirmations appear immediately; Dealer/Opponent dialogue streams unless fast-forward is enabled.
@@ -379,7 +465,19 @@ function gptModify(d,trace){let o={...d},g=G.hiddenSnapshot.gpt,m=g.model[gptHyp
 function identityDistribution(base,trace){if(G.id==='NPC')return npcModify(base,trace);if(G.id==='GPT')return gptModify(base,trace);return {...base}}
 function sizingTarget(action,trace){const max=maxRaiseTo('opp'),min=minRaiseTo('opp'),pot=Math.max(2,G.pot),spr=G.opp/pot;let fractions=G.street===0?[2.5,3,4]:[.33,.67,1,1.5],f=fractions[Math.min(fractions.length-1,Math.floor((trace.features.nutPotential+trace.features.draw*.35)*fractions.length))],t;if(G.street===0)t=Math.round(Math.max(min,G.currentBet*f));else t=Math.round(Math.max(min,G.currentBet+pot*f));if(spr<.8||trace.features.made>.9)t=max;return Math.max(min,Math.min(max,t))}
 function decideOpponent(){const ctx=restrictedOpponentContext(),base=baselineDistribution(ctx),final=identityDistribution(base.dist,base.trace),decisionIndex=(G.decisionIndex=(G.decisionIndex||0)+1),seed=hash32(`${ENGINE_VERSION}|${G.matchSeed}|${G.hand}|${G.street}|${decisionIndex}|${JSON.stringify(ctx)}`),u=seededUnit(seed),action=chooseWeighted(final,u),target=['bet','raise'].includes(action)?sizingTarget(action,base.trace):null,rec={engine:ENGINE_VERSION,hand:G.hand,street:G.street,seed,contextHash:hash32(JSON.stringify(ctx)),baseline:base.dist,identity:G.id,final,rng:u,action,target,trace:base.trace};G.decisionTrace.push(rec);return rec}
-function opponentPerformance(action,target){const snap=G.hiddenSnapshot,tones={low:['「嗯。」','「好。」','「來。」'],mid:['「繼續。」','「這裡。」','「輪到你。」'],high:['「有意思。」','「再看看。」','「我接。」']},pool=tones[snap.performance.talk>.5?'high':snap.performance.talk>.35?'mid':'low'];let line=pool[(G.decisionIndex+snap.seed)%pool.length];if(G.id==='GPT'&&G.hand<=3&&Math.random()<snap.performance.probe)line=['「這個尺度，你很常用嗎？」','「妳是在留痕跡給我看？」','「又是這個節奏。」'][G.decisionIndex%3];return line}
+function opponentPerformance(action,target){
+  const snap=G.hiddenSnapshot,level=snap.performance.talk>.5?'high':snap.performance.talk>.35?'mid':'low';
+  const pools={
+    fold:{low:['「不了。」','「這手算了。」','「下一手。」'],mid:['「這裡不跟。」','「這手給你。」','「先到這裡。」'],high:['「舞台留給你。」','「這次不陪。」','「你拿走。」']},
+    check:{low:['「過。」','「嗯。」','「你來。」'],mid:['「先過。」','「輪到你。」','「這裡不放大。」'],high:['「再看看。」','「先看你怎麼走。」','「這裡交給你。」']},
+    call:{low:['「跟。」','「好。」','「繼續。」'],mid:['「我接。」','「這個價格可以。」','「繼續看。」'],high:['「有意思，我跟。」','「這次我接。」','「好，繼續。」']},
+    bet:{low:['「這裡。」','「下注。」','「換你。」'],mid:['「這裡我下注。」','「輪到你決定。」','「我先放一點。」'],high:['「免費牌到此為止。」','「換你接招。」','「這裡我要收費。」']},
+    raise:{low:['「加。」','「再來。」','「不只這樣。」'],mid:['「我再加。」','「這裡加注。」','「價格要改一下。」'],high:['「你開了價，我來改。」','「再高一點。」','「這次輪到你接。」']}
+  };
+  const pool=(pools[action]||pools.check)[level],line=pool[(G.decisionIndex+snap.seed)%pool.length];
+  if(G.id==='GPT'&&G.hand<=3&&['check','call'].includes(action)&&Math.random()<snap.performance.probe)return ['「這個尺度，你很常用嗎？」','「妳是在留痕跡給我看？」','「又是這個節奏。」'][G.decisionIndex%3];
+  return line;
+}
 
 function assertState(tag=''){
   const total=G.hero+G.opp+G.pot;
@@ -527,6 +625,20 @@ function runDealerRegressionTests(){
     eq(G.hero+G.opp+G.pot,200,'total chips');
   });
 
+  test('dialogue recipient routing',()=>{
+    eq(dialogueRecipient('對手你真強'),'opponent','explicit opponent recipient');
+    eq(dialogueRecipient('荷官今天過得如何'),'dealer','explicit dealer recipient');
+    eq(dialogueRecipient('今天真緊張'),'dealer','default recipient');
+  });
+
+  test('opponent performance matches action',()=>{
+    baseState();G.hiddenSnapshot.performance.talk=.4;
+    for(let i=0;i<12;i++){
+      G.decisionIndex=i;
+      if(/我接|我跟|繼續看/.test(opponentPerformance('raise',12)))throw new Error('raise used call dialogue');
+    }
+  });
+
   test('short all-in call refunds unmatched hero excess',()=>{
     baseState(100,20);
     commit('hero',100);G.currentBet=100;G.actionsThisStreet=1;
@@ -601,6 +713,18 @@ function runDealerRegressionTests(){
     const c=restrictedOpponentContext();if(JSON.stringify(c).includes('2♣')||JSON.stringify(c).includes('3♣'))throw new Error('hero hidden cards leaked');
   });
 
+  test('opponent performance packet excludes identity mechanism',()=>{
+    baseState();G.board=[{r:'Q',s:'♣'},{r:'3',s:'♥'},{r:'K',s:'♥'}];
+    const p=buildOpponentPacket('action_performance',{action:'raise',target:12,message:'換你表演'}),raw=JSON.stringify(p);
+    for(const secret of ['NPC','GTO','GPT','primary','secondary','model','evidence','reliability','manipulation'])if(raw.includes(secret))throw new Error(`opponent packet leaked ${secret}`);
+    eq(p.locked_action,'raise','locked action');
+  });
+
+  test('three AI endpoints are isolated',()=>{
+    const paths=new Set([DEALER_AI.endpoint,OPPONENT_AI.endpoint,NARRATOR_AI.endpoint]);
+    eq(paths.size,3,'endpoint count');
+  });
+
   test('seeded RNG is reproducible',()=>{eq(seededUnit(123456),seededUnit(123456),'seeded rng')});
 
   G=saved;
@@ -616,6 +740,7 @@ function awardPot(winner){
   G.pot=0;G.lastPot=won;G.foldWinner=winner;
   assertState('awardPot');
   dealerFact(`${winner==='hero'?'Hunter':'Opponent'} 贏得 ${won}BB。`);
+  narrativeEvent('cards_rest',{chance:.58});
   G.matchEnded=(G.hero<=0||G.opp<=0||G.hand>=5);finishHand(winner,false);
   setTimeout(()=>dealerSay('hand_reaction',{winner,amount:won,matchEnded:G.matchEnded}),100);
 }
@@ -627,6 +752,7 @@ function startStreet(street){
   const n=street===1?3:1;
   for(let i=0;i<n;i++)G.board.push(G.d.pop());
   dealerFact(streetFact(['','Flop','Turn','River'][street]));
+  narrativeEvent('light_shifts',{chance:.34});
   render();
   if(G.actor==='opp')setTimeout(()=>{if(!G.transitioning)oppTurn()},520);
 }
@@ -658,7 +784,7 @@ function newGame(){
   const dealProfile=chooseDealProfile();
   const id=['NPC','GTO','GPT'][Math.floor(Math.random()*3)],matchSeed=(Math.random()*0xffffffff)>>>0;
   G={id,p:personas[Math.floor(Math.random()*3)],dealProfile,matchSeed,hiddenSnapshot:createHiddenSnapshot(id),decisionTrace:[],rangeTrace:[],decisionIndex:0,
-     hero:100,opp:100,pot:0,hand:0,history:[],talk:[],dealerMemory:[],ended:false,awaitingNext:false,transitioning:false,matchEnded:false,presentationEpoch:0};
+     hero:100,opp:100,pot:0,hand:0,history:[],talk:[],dealerMemory:[],narrative:{events:0,total:0,last:-99,perHand:{}},ended:false,awaitingNext:false,transitioning:false,matchEnded:false,presentationEpoch:0};
   selectedAction=null;textQueue=[];streamBusy=false;skipStream=false;activeStream=null;setFastForward(false);start.classList.add('hidden');game.classList.remove('hidden');
   dealerFact('牌桌開啟。五手，雙方起始籌碼各 100BB。');
   appendImmediate(G.p.open,'dealer');dealerRemember('dealer',G.p.open);
@@ -666,7 +792,7 @@ function newGame(){
 }
 function nextHand(){
   if(G.ended)return;
-  G.presentationEpoch=(G.presentationEpoch||0)+1;textQueue=[];skipStream=true;
+  G.presentationEpoch=(G.presentationEpoch||0)+1;textQueue=[];skipStream=true;dropPendingPresentationLines();
   if(G.hand>=5||G.hero<=0||G.opp<=0)return endGame();
   G.hand++;G.awaitingNext=false;G.showdown=false;selectedQuickSize=null;G.foldWinner=null;
   handResult.classList.add('hidden');handResult.innerHTML='';
@@ -680,6 +806,7 @@ function nextHand(){
   clearSelection();
   assertState('new hand');
   dealerFact(handStartFact());
+  if(G.hand===1)narrativeEvent('table_waits',{force:true});else narrativeEvent('light_shifts',{chance:.5});
   render();
   if(G.actor==='opp')setTimeout(oppTurn,520);
 }
@@ -742,38 +869,49 @@ function selectAction(a){
   clearSelection();selectedAction=a;map[a].classList.add('selected');
   if(a==='bet'){betPanel.classList.remove('hidden');size.value=size.min;selectedQuickSize=null;renderQuickSizes();updateSizeLabel()}
 }
+function dialogueRecipient(msg){
+  const t=String(msg||''),toDealer=/(荷官|dealer|ceo|上位者|大學生)/i.test(t),toOpponent=/(對手|opponent|獵物)/i.test(t);
+  if(toOpponent&&!toDealer)return 'opponent';
+  if(toDealer&&!toOpponent)return 'dealer';
+  if(toDealer&&toOpponent)return 'both';
+  return 'dealer';
+}
 function sendSelected(){
   if(!G||G.ended)return;
-  const msg=messageInput.value.trim(),action=selectedAction;
+  const msg=messageInput.value.trim(),action=selectedAction,recipient=dialogueRecipient(msg);
   messageInput.value='';
   if(msg){
-    say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg);
-    dealerSay('player_message',{message:msg});
+    say(`「${escapeHtml(msg)}」`,'hunter');
+    if(recipient==='dealer'||recipient==='both'){
+      dealerRemember('hunter',msg);
+      dealerSay('player_message',{message:msg});
+    }
+    if(!action&&(recipient==='opponent'||recipient==='both'))opponentSay('player_message',{message:msg});
+    if(recipient==='opponent'||recipient==='both')narrativeEvent('room_tightens',{chance:.72});
   }
   if(action){
-    // Chat and poker action are separate events; neither may consume the other.
-    return executeAction(action,'');
+    return executeAction(action,'',!!msg);
   }
 }
 function escapeHtml(s){return s.replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function showActionReceipt(text){if(!actionReceipt)return;actionReceipt.textContent='✓ '+text;actionReceipt.classList.remove('fade');clearTimeout(showActionReceipt.t);showActionReceipt.t=setTimeout(()=>actionReceipt.classList.add('fade'),900)}
-function executeAction(a,msg){if(msg){say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg)}clearSelection();heroAction(a)}
+function executeAction(a,msg,suppressDealerBeat=false){if(msg){say(`「${escapeHtml(msg)}」`,'hunter');dealerRemember('hunter',msg)}clearSelection();heroAction(a,suppressDealerBeat)}
 
 function dealerActionBeat(action,amount=0){
   if(!G||G.ended)return;
-  const recent=(G.history||[]).filter(e=>e.role==='hunter').slice(-8).map(e=>e.text).join(' ');
-  dealerSay('action_reaction',{message:`Hunter ${action}${amount?' '+amount+'BB':''}; recent=${recent}`});
+  dealerSay('action_reaction',{message:`Hunter ${action}${amount?' '+amount+'BB':''}`});
 }
-function heroAction(a){
+function heroAction(a,suppressDealerBeat=false){
   if(G.actor!=='hero')return;
   try{
-    if(a==='fold'){showActionReceipt('Fold');say('Hunter Fold。');dealerAction('hero','fold');return}
-    if(a==='check'){showActionReceipt('Check');say('Hunter Check。');dealerAction('hero','check');dealerActionBeat('Check')}
-    if(a==='call'){let tc=amountToCall('hero'),amt=Math.min(tc,G.hero),ai=amt===G.hero;showActionReceipt(`${ai?'All-in Call':'Call'} ${amt}BB`);say(`Hunter ${ai?'All-in Call':'Call'} ${amt}BB。`);dealerAction('hero','call');dealerActionBeat(ai?'All-in Call':'Call',amt)}
+    if(a==='fold'){showActionReceipt('Fold');say('Hunter Fold。');narrativeEvent('cards_rest',{chance:.45});dealerAction('hero','fold');return}
+    if(a==='check'){showActionReceipt('Check');say('Hunter Check。');if(!suppressDealerBeat)dealerActionBeat('Check');dealerAction('hero','check')}
+    if(a==='call'){let tc=amountToCall('hero'),amt=Math.min(tc,G.hero),ai=amt===G.hero;showActionReceipt(`${ai?'All-in Call':'Call'} ${amt}BB`);say(`Hunter ${ai?'All-in Call':'Call'} ${amt}BB。`);if(ai)narrativeEvent('room_tightens',{force:true});if(!suppressDealerBeat)dealerActionBeat(ai?'All-in Call':'Call',amt);dealerAction('hero','call')}
     if(a==='bet'){
       let type=G.currentBet===0?'bet':'raise',target=+size.value;
       const allin=target>=maxRaiseTo('hero');showActionReceipt(allin?`All-in ${G.hero}BB`:`${type==='raise'?'Raise':'Bet'} ${target}BB`);say(allin?`Hunter All-in ${G.hero}BB。`:`Hunter ${type==='raise'?'Raise':'Bet'} ${target}BB。`);
-      dealerAction('hero',type,target);dealerActionBeat(allin?'All-in':type==='raise'?'Raise':'Bet',target);
+      narrativeEvent(allin?'room_tightens':'light_shifts',{force:allin,chance:(target>Math.max(12,G.pot*.75)?0.62:0.28)});
+      if(!suppressDealerBeat)dealerActionBeat(allin?'All-in':type==='raise'?'Raise':'Bet',target);dealerAction('hero',type,target);
     }
     render();
     if(!G.awaitingNext&&!G.ended&&G.actor==='opp')setTimeout(oppTurn,420);
@@ -783,11 +921,14 @@ function oppRespond(){return oppTurn()}
 function oppTurn(){
   if(!G||G.ended||G.awaitingNext||G.actor!=='opp')return;
   const legal=legalActions('opp');let rec;
-  try{rec=decideOpponent();const {action,target}=rec,tc=amountToCall('opp'),perf=opponentPerformance(action,target);
-    if(action==='fold')appendImmediate(`${perf} <b>Fold</b>`,'opp');
-    else if(action==='check')appendImmediate(`${perf} <b>Check</b>`,'opp');
-    else if(action==='call'){const amt=Math.min(tc,G.opp),ai=amt===G.opp;appendImmediate(`${perf} <b>${ai?'All-in Call':'Call'} ${amt}BB</b>`,'opp');}
-    else {const ai=target>=maxRaiseTo('opp');appendImmediate(`${perf} <b>${ai?'All-in':action==='raise'?'Raise':'Bet'} ${ai?G.opp:target}BB</b>`,'opp');}
+  try{rec=decideOpponent();const {action,target}=rec,tc=amountToCall('opp');let label='',lockedAction=action;
+    if(action==='fold')label='Fold';
+    else if(action==='check')label='Check';
+    else if(action==='call'){const amt=Math.min(tc,G.opp),ai=amt===G.opp;label=`${ai?'All-in Call':'Call'} ${amt}BB`;if(ai)lockedAction='all_in';}
+    else {const ai=target>=maxRaiseTo('opp');label=`${ai?'All-in':action==='raise'?'Raise':'Bet'} ${ai?G.opp:target}BB`;if(ai)lockedAction='all_in';}
+    const lastHunter=(G.history||[]).filter(x=>x.role==='hunter').slice(-1)[0]?.text||'';
+    opponentSay('action_performance',{action:lockedAction,target,message:lastHunter},` <b>${escapeHtml(label)}</b>`);
+    if(lockedAction==='all_in')narrativeEvent('room_tightens',{force:true});else if(action==='raise'||action==='bet')narrativeEvent('light_shifts',{chance:target>Math.max(12,G.pot*.75)?0.62:0.28});
     dealerAction('opp',action,target);render();
   }catch(e){console.error(e);dealerSay('system_block');const fallback=canCheck('opp')?'check':(legal.includes('call')?'call':'fold');dealerAction('opp',fallback);render();}
 }
@@ -817,10 +958,11 @@ function showResultBeat(winner,sd,hn='',on=''){
 }
 function continueAfterHand(){if(!G.awaitingNext)return;G.awaitingNext=false;if(G.hand>=5||G.hero<=0||G.opp<=0)endGame();else nextHand()}
 function endGame(){
-  G.presentationEpoch=(G.presentationEpoch||0)+1;textQueue=[];skipStream=true;
+  G.presentationEpoch=(G.presentationEpoch||0)+1;textQueue=[];skipStream=true;dropPendingPresentationLines();
   G.ended=true;G.actor=null;clearSelection();
   let verdict=G.hero>G.opp?'Hunter 勝出。':G.hero<G.opp?'Opponent 勝出。':'籌碼持平。';
   dealerFact(`Poker Phase 結束。${verdict}`);phaseOverlay.classList.add('show');
+  if(transitionNarration)transitionNarration.textContent='';narratorSay('chair_empty',{target:'transition'});
   setTimeout(()=>{pokerPhase.classList.add('hidden');transition.classList.remove('hidden');transitionResult.textContent=`最終籌碼：Hunter ${G.hero}BB｜Opponent ${G.opp}BB。${verdict}`;phaseOverlay.classList.remove('show')},950)
 }
 
@@ -852,15 +994,18 @@ async function revealIdentity(x,reason=''){
   guess.classList.add('hidden');result.classList.remove('hidden');
   const ok=x===G.id,why={NPC:'Bias：有穩定個人偏差；會說話、會記得，不等於真正更新核心策略。',GTO:'Baseline：核心維持穩定策略基準，不因少量刺激大幅漂移。',GPT:'Bayesian Update：會把跨手 evidence 累積進 Hunter Model，再調整後續行為。'}[G.id];
   const reasonHtml=reason?`<p>你的理由：${escapeHtml(reason)}</p>`:'';
-  result.innerHTML=`<div class="big">${ok?'✓ HUNT SUCCESS':'✕ MASK HELD'}</div><p>你的答案：<b>${x}</b></p>${reasonHtml}<p>REVEAL：<b>${G.id}</b></p><p class="note">${why}</p><div id="identityAnalysis" class="talk" style="height:auto;max-height:220px;margin:10px 0"><div class="line dealer"><b>Dealer：</b><span class="typing-dots"><i></i><i></i><i></i></span></div></div><button class="primary" onclick="location.reload()">再獵一次</button>`;
+  result.innerHTML=`<div class="big">${ok?'✓ HUNT SUCCESS':'✕ MASK HELD'}</div><p>你的答案：<b>${x}</b></p>${reasonHtml}<p>REVEAL：<b>${G.id}</b></p><p class="note">${why}</p><p id="revealNarration" class="narrator"></p><div id="identityAnalysis" class="talk" style="height:auto;max-height:220px;margin:10px 0"><div class="line dealer"><b>Dealer：</b><span class="typing-dots"><i></i><i></i><i></i></span></div></div><button class="primary" onclick="location.reload()">再獵一次</button>`;
   result.scrollIntoView({behavior:'smooth'});
   const actionHistory=(G.history||[]).slice(-70).map(e=>`H${e.hand} ${e.street} ${e.role}: ${e.text}`).join('\n');
   const mech=(G.decisionTrace||[]).slice(-30).map(d=>`H${d.hand} ${['PREFLOP','FLOP','TURN','RIVER'][d.street]} Opponent ${d.action}${d.target?' '+d.target+'BB':''}; baseline=${JSON.stringify(d.baseline)}; final=${JSON.stringify(d.final)}`).join('\n');
   const history=(`OBSERVED ACTIONS\n${actionHistory}\nOPPONENT MECHANISM TRACE\n${mech}`).slice(-7000);
+  const narrationPromise=narratorRequest('cards_rest');
   let text=await dealerRequest('identity_analysis',{guess:x,actual:G.id,correct:ok,reason,history});
   if(!text||text.trim().length<12)text=reasonedIdentityFallback({guess:x,actual:G.id,correct:ok,reason});
   const box=document.getElementById('identityAnalysis');
   if(box)box.innerHTML=`<div class="line dealer"><b>Dealer：</b>${escapeHtml(text)}</div>`;
+  const narration=await narrationPromise,narrationBox=document.getElementById('revealNarration');
+  if(narrationBox)narrationBox.textContent=narration;
 }
 
 </script>
